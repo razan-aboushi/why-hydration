@@ -1,0 +1,115 @@
+{
+  "name": "why-hydration",
+  "version": "0.1.0",
+  "description": "Tells you which component broke hydration, what differed, and how to fix it — in dev, with zero production cost.",
+  "license": "MIT",
+  "author": "Razan Aboushi (https://github.com/razan-aboushi)",
+  "homepage": "https://github.com/razan-aboushi/why-hydration#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/razan-aboushi/why-hydration.git"
+  },
+  "bugs": {
+    "url": "https://github.com/razan-aboushi/why-hydration/issues"
+  },
+  "keywords": [
+    "react",
+    "hydration",
+    "ssr",
+    "next",
+    "remix",
+    "vite",
+    "hydration-mismatch",
+    "devtools",
+    "diagnostics"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js",
+      "require": "./dist/react.cjs"
+    },
+    "./next": {
+      "types": "./dist/next/index.d.ts",
+      "import": "./dist/next/index.js",
+      "require": "./dist/next/index.cjs"
+    },
+    "./next/script": {
+      "types": "./dist/next/script.d.ts",
+      "import": "./dist/next/script.js",
+      "require": "./dist/next/script.cjs"
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "size": "size-limit",
+    "prepublishOnly": "npm run clean && npm run build",
+    "ci": "npm run lint && npm run typecheck && npm run test && npm run build && npm run size",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "npm run build && changeset publish"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0",
+    "react-dom": "^18.0.0 || ^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.27.9",
+    "@size-limit/file": "^11.2.0",
+    "@size-limit/webpack": "^11.2.0",
+    "@types/node": "^20.16.11",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@typescript-eslint/eslint-plugin": "^8.13.0",
+    "@typescript-eslint/parser": "^8.13.0",
+    "eslint": "^8.57.1",
+    "eslint-config-prettier": "^9.1.0",
+    "jsdom": "^25.0.1",
+    "prettier": "^3.3.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "size-limit": "^11.1.6",
+    "tsup": "^8.3.5",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4",
+    "webpack": "^5.108.4"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>why-hydration · Vite example</title>
+    <!--
+      why-hydration snapshot script — DEV ONLY.
+      Captures the server DOM before hydration. In a real app, emit this only
+      when NODE_ENV !== 'production'. Output of getSnapshotScriptSource(['#root']).
+    -->
+    <script>
+      (function () {
+        var K = '__WHY_HYDRATION_SNAPSHOT__';
+        if (typeof window === 'undefined' || window[K]) return;
+        var S = ['#root'];
+        function cap() {
+          if (window[K]) return;
+          var r = {};
+          for (var i = 0; i < S.length; i++) {
+            var el = document.querySelector(S[i]);
+            if (el) r[S[i]] = el.innerHTML;
+          }
+          window[K] = { version: 1, capturedAt: Date.now(), roots: r };
+        }
+        if (document.readyState !== 'loading') {
+          cap();
+        } else {
+          document.addEventListener('readystatechange', function () {
+            if (document.readyState === 'interactive') cap();
+          });
+          document.addEventListener('DOMContentLoaded', cap);
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
