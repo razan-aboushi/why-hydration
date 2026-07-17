@@ -1,16 +1,5 @@
-/**
- * Parse React's dev-mode hydration warnings into a {@link Divergence}.
- *
- * Where we don't control `hydrateRoot` (Next.js App/Pages), the most reliable
- * signal is the detail React already computed and printed to `console.error`.
- * This module reconstructs the formatted message from the raw `console.error`
- * arguments and extracts the structured mismatch. Framework-agnostic string
- * work, so it lives in core.
- */
-
 import type { Divergence } from './types';
 
-/** True when a formatted console message is a React hydration warning. */
 export function isHydrationMessage(message: string): boolean {
   return (
     /hydrat/i.test(message) ||
@@ -21,7 +10,6 @@ export function isHydrationMessage(message: string): boolean {
   );
 }
 
-/** Reconstruct the printed string from raw `console.error(format, ...args)`. */
 export function formatConsoleArgs(args: readonly unknown[]): string {
   if (args.length === 0) return '';
   const [first, ...rest] = args;
@@ -32,14 +20,9 @@ export function formatConsoleArgs(args: readonly unknown[]): string {
   return args.map((a) => (typeof a === 'string' ? a : String(a))).join(' ');
 }
 
-/**
- * Parse a formatted React hydration message into a partial divergence.
- * Returns `null` when the message isn't a recognized hydration warning.
- */
 export function parseHydrationMessage(message: string): Divergence | null {
   if (!isHydrationMessage(message)) return null;
 
-  // Text content mismatch (React 18 & 19 variants).
   const text =
     /Text content (?:did not match|does not match)[^:]*Server:\s*"?(.*?)"?\s+Client:\s*"?(.*?)"?\s*$/i.exec(
       message,
@@ -54,7 +37,6 @@ export function parseHydrationMessage(message: string): Divergence | null {
     };
   }
 
-  // Prop / attribute mismatch.
   const prop =
     /Prop [`'"]([^`'"]+)[`'"] did not match\.?\s*Server:\s*"?(.*?)"?\s+Client:\s*"?(.*?)"?\s*$/i.exec(
       message,
@@ -70,7 +52,6 @@ export function parseHydrationMessage(message: string): Divergence | null {
     };
   }
 
-  // Invalid nesting.
   const nesting =
     /<(\w+)>\s*cannot (?:appear as a|be a) (?:child|descendant) of <?(\w+)>?/i.exec(
       message,
@@ -87,7 +68,6 @@ export function parseHydrationMessage(message: string): Divergence | null {
     };
   }
 
-  // Missing/extra element ("Expected server HTML to contain a matching <X>").
   const expected =
     /Expected server HTML to contain a matching <(\w+)>(?: in <(\w+)>)?/i.exec(
       message,
@@ -118,7 +98,6 @@ export function parseHydrationMessage(message: string): Divergence | null {
     };
   }
 
-  // Recognized as hydration-related but no structured detail — still useful.
   return {
     kind: 'structure',
     path: 'body',

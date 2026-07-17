@@ -1,39 +1,13 @@
-/**
- * Diff engine.
- *
- * Walks the server snapshot tree and the live post-hydration DOM tree in
- * parallel and returns the *first* divergence in document order, classified by
- * {@link DivergenceKind} with a stable, selector-style `path` to the node.
- *
- * The engine is deliberately conservative: it reports one divergence (the first)
- * rather than an exhaustive edit script. That first divergence is almost always
- * the actionable one, and it keeps the classifier's job tractable.
- */
-
 import type { Divergence } from './types';
 
-/** Attributes that browsers/React add or normalize and that never indicate a
- * real hydration bug on their own. Comparing them causes false positives. */
-const IGNORED_ATTRIBUTES = new Set<string>([
-  // React internals / hydration bookkeeping.
-  'data-reactroot',
-  // Style/class ordering is compared by normalized value below, not raw.
-]);
+const IGNORED_ATTRIBUTES = new Set<string>(['data-reactroot']);
 
-/**
- * Parse a server-rendered innerHTML string into a detached container whose tag
- * matches the live root, so child alignment starts from an equivalent context.
- */
 export function parseServerHtml(html: string, rootTagName: string): Element {
   const container = document.createElement(rootTagName || 'div');
   container.innerHTML = html;
   return container;
 }
 
-/**
- * Compare `serverRoot` (parsed snapshot) against `clientRoot` (live DOM) and
- * return the first divergence, or `null` if the subtrees match.
- */
 export function diffTrees(
   serverRoot: Element,
   clientRoot: Element,
@@ -42,9 +16,6 @@ export function diffTrees(
   return diffChildren(serverRoot, clientRoot, basePath);
 }
 
-/**
- * Convenience entry: diff a server innerHTML string against a live root element.
- */
 export function diffSnapshotAgainstDom(
   serverHtml: string,
   clientRoot: Element,
@@ -65,10 +36,8 @@ function diffChildren(
   for (let i = 0; i < max; i++) {
     const serverNode = serverChildren[i] ?? null;
     const clientNode = clientChildren[i] ?? null;
-    // At least one side is non-null whenever i < max.
     const path = childPath(parentPath, (clientNode ?? serverNode) as Node, i);
 
-    // Node present on one side only.
     if (serverNode && !clientNode) {
       return {
         kind: 'node-removed',
@@ -110,7 +79,6 @@ function diffNode(
   path: string,
   parentTag: string | undefined,
 ): Divergence | null {
-  // Different node types (e.g. text vs element) → structural.
   if (serverNode.nodeType !== clientNode.nodeType) {
     return {
       kind: 'structure',
@@ -198,7 +166,6 @@ function diffAttributes(
   return null;
 }
 
-/** Normalize order-insensitive attributes so cosmetic reordering isn't a diff. */
 function normalizeAttr(name: string, value: string | null): string | null {
   if (value == null) return null;
   if (name === 'class') {
@@ -215,12 +182,6 @@ function normalizeAttr(name: string, value: string | null): string | null {
   return value;
 }
 
-/**
- * Elements that are never hydrated content and must be skipped symmetrically on
- * both sides, or they surface as false `node-added` divergences. This covers
- * the tool's own overlay and framework-injected nodes (streaming SSR scripts,
- * `<template>` placeholders, injected styles/links).
- */
 const NOISE_TAGS = new Set<string>([
   'SCRIPT',
   'STYLE',
@@ -229,23 +190,15 @@ const NOISE_TAGS = new Set<string>([
   'NOSCRIPT',
 ]);
 
-/** True for nodes the diff must ignore (tool overlay + framework noise). */
 function isNoiseElement(node: Node): boolean {
   if (node.nodeType !== Node.ELEMENT_NODE) return false;
   const el = node as Element;
   if (el.hasAttribute('data-why-hydration')) return true;
   if (NOISE_TAGS.has(el.tagName)) return true;
-  // Framework runtime elements (e.g. Next.js route announcer).
   if (el.tagName.includes('-ROUTE-ANNOUNCER')) return true;
   return false;
 }
 
-/**
- * Child nodes worth comparing. We drop insignificant whitespace-only text nodes
- * *between* elements (formatting whitespace) and noise elements (see
- * {@link isNoiseElement}), but keep whitespace text nodes that sit among other
- * text — those can be genuine mismatches.
- */
 function meaningfulChildNodes(parent: Node): Node[] {
   const children = Array.from(parent.childNodes);
   const hasElement = children.some(
@@ -256,8 +209,6 @@ function meaningfulChildNodes(parent: Node): Node[] {
     if (node.nodeType !== Node.TEXT_NODE) return true;
     const text = node.textContent ?? '';
     if (text.trim() !== '') return true;
-    // Whitespace-only text node: keep only when the parent has no element
-    // children (pure text context), otherwise treat as formatting noise.
     return !hasElement;
   });
 }

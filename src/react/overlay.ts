@@ -1,24 +1,11 @@
-/**
- * Dev-only diagnostic overlay, rendered with **plain DOM** in its own
- * Shadow-DOM container.
- *
- * Why plain DOM and not React: when a hydration mismatch fires, the app's React
- * tree may be mid-recovery. The overlay must never depend on the app's React
- * instance. It also lives in a shadow root so the app's CSS can't affect it and
- * its CSS can't leak into the app. The tool only ever mutates this one node.
- */
-
 import type { HydrationReport } from '../core/types';
 
 export interface OverlayOptions {
-  /** Corner to anchor the panel. Default `bottom-right`. */
   position?: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
 }
 
 export interface OverlayHandle {
-  /** Add a report to the panel. */
   push: (report: HydrationReport) => void;
-  /** Remove the overlay from the DOM entirely. */
   destroy: () => void;
 }
 
@@ -171,8 +158,6 @@ function renderCard(report: HydrationReport): HTMLElement {
   fix.append(report.cause.suggestion);
   body.appendChild(fix);
 
-  // Only render safe http(s) links (guards against a custom classifier
-  // supplying a `javascript:` URL).
   if (report.cause.docsUrl && /^https?:\/\//i.test(report.cause.docsUrl)) {
     const a = el('a', 'wh-docs', 'Learn more →');
     a.href = report.cause.docsUrl;
@@ -185,10 +170,6 @@ function renderCard(report: HydrationReport): HTMLElement {
   return card;
 }
 
-/**
- * Create the overlay lazily. The container/host is only attached to the DOM on
- * the first report, so a mismatch-free page adds nothing visible.
- */
 export function createOverlay(options: OverlayOptions = {}): OverlayHandle {
   const position = options.position ?? 'bottom-right';
   let host: HTMLElement | null = null;
@@ -198,12 +179,10 @@ export function createOverlay(options: OverlayOptions = {}): OverlayHandle {
 
   function ensureMounted(): void {
     if (host) return;
-    // Guard against a duplicate overlay if two inspectors ever mount.
     document.getElementById(CONTAINER_ID)?.remove();
     host = document.createElement('div');
     host.id = CONTAINER_ID;
     host.setAttribute('data-why-hydration', 'overlay');
-    // Never let the overlay itself be treated as app content.
     host.setAttribute('aria-hidden', 'false');
     const shadow = host.attachShadow({ mode: 'open' });
 
@@ -232,7 +211,6 @@ export function createOverlay(options: OverlayOptions = {}): OverlayHandle {
     shadow.appendChild(panel);
     document.body.appendChild(host);
 
-    // Escape closes the overlay.
     host.addEventListener('keydown', (e) => {
       if ((e as KeyboardEvent).key === 'Escape') destroy();
     });

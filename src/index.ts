@@ -1,11 +1,3 @@
-/**
- * `why-hydration` — core engine (framework-agnostic).
- *
- * This entry is pure: importing it has no side effects and every export is a
- * function or type, so anything you don't use tree-shakes away. Framework
- * adapters (`why-hydration/react`, `why-hydration/next`) build on top of this.
- */
-
 export type {
   Cause,
   Classifier,

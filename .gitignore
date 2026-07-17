@@ -6,3 +6,6 @@ coverage
 .turbo
 .next
 out
+
+.idea
+.vscode

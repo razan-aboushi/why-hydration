@@ -1,16 +1,3 @@
-/**
- * The built-in classifier rules, in priority order (§5 of the build brief).
- *
- * Each rule inspects a {@link Divergence} and returns a {@link Cause} or `null`
- * to abstain. The engine ({@link ./index}) runs any user-supplied classifiers
- * first, then these, and takes the first result whose confidence clears the
- * threshold.
- *
- * The rule set is exported as an ordered array so it stays extensible: a
- * contributor adds a category by adding a rule, and consumers can prepend their
- * own via the `classify` option.
- */
-
 import type { Cause, Classifier, Divergence } from '../types';
 import {
   hasArabicIndicDigits,
@@ -25,7 +12,6 @@ import {
   toTimestamp,
 } from './detectors';
 
-/** Docs anchors live in the README's "Cause categories" section. */
 export const DOCS_BASE =
   'https://github.com/razan-aboushi/why-hydration#cause-';
 
@@ -33,7 +19,6 @@ function docs(category: string): string {
   return `${DOCS_BASE}${category}`;
 }
 
-/** Both sides present and different — the precondition for value-based rules. */
 function bothDiffer(d: Divergence): d is Divergence & {
   server: string;
   client: string;
@@ -73,7 +58,6 @@ const dateTime: Classifier = (d) => {
   }
   const delta =
     serverTs != null && clientTs != null ? Math.abs(serverTs - clientTs) : 0;
-  // A small delta is the signature of "rendered a moment apart".
   const smallDelta = delta > 0 && delta < 24 * 60 * 60 * 1000;
   return {
     category: 'date-time',
@@ -95,7 +79,6 @@ const localeFormat: Classifier = (d) => {
   if (!bothDiffer(d)) return null;
   const { server, client } = d;
 
-  // Arabic-first: differing digit scripts are the strongest signal.
   const scriptMismatch =
     (hasArabicIndicDigits(server) && hasLatinDigits(client)) ||
     (hasLatinDigits(server) && hasArabicIndicDigits(client));
@@ -146,7 +129,6 @@ const localeFormat: Classifier = (d) => {
 };
 
 const browserOnlyApi: Classifier = (d) => {
-  // Client rendered real content where the server rendered nothing.
   const serverEmpty = d.server == null || d.server.trim() === '';
   const clientHasContent = d.client != null && d.client.trim() !== '';
   const shape =
@@ -170,14 +152,11 @@ const browserOnlyApi: Classifier = (d) => {
 };
 
 const viewportBranching: Classifier = (d) => {
-  // A structural swap of a subtree (not an empty→content value delta).
   const structural =
     d.kind === 'structure' ||
     d.kind === 'node-added' ||
     d.kind === 'node-removed';
   if (!structural) return null;
-  // Invalid nesting also surfaces as a structural change; let the more
-  // specific rule (checked next) own it instead of swallowing it here.
   if (
     isInvalidNesting(d.parentTagName, d.tagName) ||
     messageIndicatesInvalidNesting(d.reactMessage)
@@ -222,7 +201,6 @@ const whitespaceMinification: Classifier = (d) => {
   if (d.kind !== 'text') return null;
   if (d.server == null || d.client == null) return null;
   if (d.server === d.client) return null;
-  // Difference is whitespace-only when the trimmed/collapsed values agree.
   const collapse = (s: string) => s.replace(/\s+/g, ' ').trim();
   if (collapse(d.server) !== collapse(d.client)) return null;
   return {
@@ -256,7 +234,6 @@ const thirdPartyDomMutation: Classifier = (d) => {
         docsUrl: docs('third-party-dom-mutation'),
       };
     }
-    // An attribute added right at/above the root is also a third-party smell.
     const atRoot = /^(html|body)\b/.test(d.path) && d.server == null;
     if (atRoot) {
       return {
@@ -276,10 +253,6 @@ const thirdPartyDomMutation: Classifier = (d) => {
   return null;
 };
 
-/**
- * The built-in rules, in the exact priority order from §5. Exported so tests
- * and docs can enumerate them, and so consumers understand precedence.
- */
 export const BUILT_IN_RULES: readonly Classifier[] = [
   nonDeterministic,
   dateTime,
@@ -291,7 +264,6 @@ export const BUILT_IN_RULES: readonly Classifier[] = [
   thirdPartyDomMutation,
 ];
 
-/** The fallback cause when nothing matches. */
 export const UNKNOWN_CAUSE: Cause = {
   category: 'unknown',
   confidence: 0,
