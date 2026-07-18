@@ -3,7 +3,7 @@
 **Tells you which component broke hydration, what differed, and how to fix it — in dev, with zero production cost.**
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/razan-aboushi/why-hydration/main/docs/screenshots/overlay-hero.png" alt="why-hydration overlay showing three classified hydration mismatches" width="440">
+  <img src="docs/screenshots/overlay-hero.png" alt="why-hydration overlay showing three classified hydration mismatches" width="440">
 </p>
 
 React's hydration warnings tell you _that_ something mismatched, rarely _which
@@ -217,7 +217,7 @@ threshold wins, otherwise `unknown`. Custom `classify` rules run first.
 
 ### non-deterministic-value
 
-<img src="https://raw.githubusercontent.com/razan-aboushi/why-hydration/main/docs/screenshots/cause-non-deterministic-value.png" alt="non-deterministic-value report" width="420">
+<img src="docs/screenshots/cause-non-deterministic-value.png" alt="non-deterministic-value report" width="420">
 
 Server and client rendered different random-looking values (UUID, token, React
 `:r…:` id, or `Math.random()` output).
@@ -229,7 +229,7 @@ Server and client rendered different random-looking values (UUID, token, React
 
 ### date-time
 
-<img src="https://raw.githubusercontent.com/razan-aboushi/why-hydration/main/docs/screenshots/cause-date-time.png" alt="date-time report" width="420">
+<img src="docs/screenshots/cause-date-time.png" alt="date-time report" width="420">
 
 Values are dates/times that differ by a small delta — the clock or timezone moved
 between server and client render.
@@ -241,7 +241,7 @@ timezone when formatting.
 
 ### locale-format
 
-<img src="https://raw.githubusercontent.com/razan-aboushi/why-hydration/main/docs/screenshots/cause-locale-format.png" alt="locale-format report" width="420">
+<img src="docs/screenshots/cause-locale-format.png" alt="locale-format report" width="420">
 
 Same underlying value, different formatting: **Arabic-Indic ٠١٢ vs Latin 012**,
 decimal/thousand separators (`1,234.56` vs `1.234,56`), or date order (MM/DD vs
@@ -254,7 +254,7 @@ after mount.
 
 ### browser-only-api
 
-<img src="https://raw.githubusercontent.com/razan-aboushi/why-hydration/main/docs/screenshots/cause-browser-only-api.png" alt="browser-only-api report" width="420">
+<img src="docs/screenshots/cause-browser-only-api.png" alt="browser-only-api report" width="420">
 
 The client rendered content the server left empty — a read of `window`,
 `document`, `localStorage`, `navigator`, or `matchMedia` during render.
@@ -275,7 +275,7 @@ branches the tree at first render.
 
 ### invalid-html-nesting
 
-<img src="https://raw.githubusercontent.com/razan-aboushi/why-hydration/main/docs/screenshots/cause-invalid-html-nesting.png" alt="invalid-html-nesting report" width="420">
+<img src="docs/screenshots/cause-invalid-html-nesting.png" alt="invalid-html-nesting report" width="420">
 
 A node was moved/ejected because the markup is invalid (`<div>` in `<p>`, nested
 `<a>`). The browser repairs the server DOM so it no longer matches React.
@@ -296,7 +296,7 @@ app root.
 
 ### third-party-dom-mutation
 
-<img src="https://raw.githubusercontent.com/razan-aboushi/why-hydration/main/docs/screenshots/cause-third-party-dom-mutation.png" alt="third-party-dom-mutation report" width="420">
+<img src="docs/screenshots/cause-third-party-dom-mutation.png" alt="third-party-dom-mutation report" width="420">
 
 An attribute was injected by a browser extension (Grammarly, ColorZilla, …) or an
 early third-party script before hydration.
