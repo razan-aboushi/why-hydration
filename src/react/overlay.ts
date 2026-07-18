@@ -87,6 +87,12 @@ const STYLES = `
 .wh-docs { display: inline-block; margin-top: 6px; color: #60a5fa; text-decoration: none; font-size: 11px; }
 .wh-docs:hover { text-decoration: underline; }
 .wh-empty-value { color: #6b7280; font-style: italic; }
+@media (max-width: 420px) {
+  .wh-panel { width: auto; max-height: min(80vh, 640px); }
+  .wh-bottom-right, .wh-bottom-left { left: 8px; right: 8px; }
+  .wh-top-right, .wh-top-left { left: 8px; right: 8px; }
+  .wh-diff { grid-template-columns: 1fr; }
+}
 `;
 
 function el<K extends keyof HTMLElementTagNameMap>(
