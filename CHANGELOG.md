@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0
+## 0.1.3
 
 Stability + accuracy overhaul from running on a large production Next.js app.
 Detection is now **deterministic** and reports **every** mismatch at once.

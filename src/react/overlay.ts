@@ -65,8 +65,8 @@ const STYLES = `
   font-size: 12px; padding: 3px 8px;
 }
 .wh-btn:hover { color: #f3f4f6; border-color: #374151; }
-.wh-list { overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
-.wh-card { border: 1px solid #1f2937; border-radius: 10px; background: #0f1521; overflow: hidden; }
+.wh-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+.wh-card { flex: 0 0 auto; border: 1px solid #1f2937; border-radius: 10px; background: #0f1521; overflow: hidden; }
 .wh-card-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; }
 .wh-cat {
   font-weight: 600; color: #fbbf24; font-size: 12px;
@@ -220,6 +220,7 @@ export function createOverlay(options: OverlayOptions = {}): OverlayHandle {
   let hintEl: HTMLElement | null = null;
   let hintTextEl: HTMLElement | null = null;
   let hintTimer: ReturnType<typeof setTimeout> | null = null;
+  let hintCheckTimer: ReturnType<typeof setTimeout> | null = null;
   let hintDismissed = false;
   let count = 0;
 
@@ -261,8 +262,13 @@ export function createOverlay(options: OverlayOptions = {}): OverlayHandle {
     hintX.setAttribute('aria-label', 'Dismiss hint');
     hintX.addEventListener('click', () => dismissHint());
     hintEl.appendChild(hintX);
-    // Hide the hint once the user scrolls (they've found the rest).
-    listEl.addEventListener('scroll', () => dismissHint());
+    // Hide the hint once the user has scrolled to the bottom (found the rest).
+    listEl.addEventListener('scroll', () => {
+      if (!listEl || !hintEl) return;
+      const atBottom =
+        listEl.scrollTop + listEl.clientHeight >= listEl.scrollHeight - 8;
+      if (atBottom) hintEl.classList.remove('wh-show');
+    });
     panel.appendChild(hintEl);
 
     shadow.appendChild(panel);
@@ -283,26 +289,25 @@ export function createOverlay(options: OverlayOptions = {}): OverlayHandle {
   }
 
   // Show a "more below" hint when the list overflows, auto-hiding after 5s.
+  // Only ever ADDS the class — hiding is owned by the timer / scroll / close —
+  // so a transient un-settled layout measurement can't flicker it off.
   function updateHint(): void {
     if (!listEl || !hintEl || !hintTextEl || hintDismissed) return;
     const overflowing = listEl.scrollHeight - listEl.clientHeight > 8;
     const atBottom =
       listEl.scrollTop + listEl.clientHeight >= listEl.scrollHeight - 8;
-    if (overflowing && !atBottom) {
-      hintTextEl.textContent = `↓ ${count} issues — scroll for more`;
-      hintEl.classList.add('wh-show');
-      if (hintTimer) clearTimeout(hintTimer);
-      hintTimer = setTimeout(() => {
-        hintEl?.classList.remove('wh-show');
-      }, 5000);
-    } else {
-      hintEl.classList.remove('wh-show');
-    }
+    if (!overflowing || atBottom || hintEl.classList.contains('wh-show')) return;
+    hintTextEl.textContent = `↓ ${count} issues — scroll for more`;
+    hintEl.classList.add('wh-show');
+    if (hintTimer) clearTimeout(hintTimer);
+    hintTimer = setTimeout(() => hintEl?.classList.remove('wh-show'), 5000);
   }
 
   function destroy(): void {
     if (hintTimer) clearTimeout(hintTimer);
+    if (hintCheckTimer) clearTimeout(hintCheckTimer);
     hintTimer = null;
+    hintCheckTimer = null;
     host?.remove();
     host = null;
     listEl = null;
@@ -316,7 +321,11 @@ export function createOverlay(options: OverlayOptions = {}): OverlayHandle {
     count += 1;
     if (countEl) countEl.textContent = String(count);
     listEl?.appendChild(renderCard(report));
-    updateHint();
+    // Debounce: reports arrive in bursts across the settling window. Evaluate
+    // the hint once things go quiet, after layout has settled, so the overflow
+    // measurement is accurate.
+    if (hintCheckTimer) clearTimeout(hintCheckTimer);
+    hintCheckTimer = setTimeout(updateHint, 400);
   }
 
   return { push, destroy };
