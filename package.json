@@ -73,6 +73,13 @@
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "typesVersions": {
+    "*": {
+      "react": ["./dist/react.d.ts"],
+      "next": ["./dist/next/index.d.ts"],
+      "next/script": ["./dist/next/script.d.ts"]
+    }
+  },
   "files": [
     "dist",
     "README.md",
