@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.2.0
+
+Stability + accuracy overhaul from running on a large production Next.js app.
+Detection is now **deterministic** and reports **every** mismatch at once.
+
+- **LCS child alignment.** Children are matched by an LCS (tag+id) instead of by
+  index, so a node the client injects mid-tree (react-toastify's
+  `<section class="Toastify">`, a portal, a modal, an ad) is treated as an
+  insertion — it no longer shifts every sibling and cascade into a different set
+  of false positives on each refresh. This makes results **consistent across
+  refreshes**.
+- **Collect all mismatches.** The diff now returns every divergence on the page
+  (deduped by value), so the overlay shows them together instead of one-per-
+  refresh. The panel scrolls with a "↓ N issues — scroll for more" hint that
+  auto-hides after 5s or on close/scroll.
+- **Skip client-injected containers** — toasts, modals, portals, overlays,
+  tooltips, consent banners, chat/analytics widgets (by class/role/`aria-live`)
+  are never reported and never mask a real mismatch.
+- **Skip pending Suspense fallbacks** — content inside a streaming `<!--$?-->`
+  boundary (server `Loading…` vs client content) is expected, not a mismatch.
+- **No duplicates** — value-based dedup means the same mismatch (e.g. two links
+  with the same conditional class) appears once.
+- **All class/style mismatches captured.** React can emit several changes in one
+  hydration message; the parser now extracts all of them (not just the first).
+- Adjacent delete+insert is coalesced into a single `structure` report.
+- License: removed MIT (now `UNLICENSED`); added the author's LinkedIn.
+
 ## 0.1.2
 
 Accuracy overhaul from running on a large production Next.js app — fixes real

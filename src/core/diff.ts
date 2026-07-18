@@ -8,79 +8,133 @@ export function parseServerHtml(html: string, rootTagName: string): Element {
   return container;
 }
 
+/**
+ * Collect *every* divergence between the server snapshot and the live DOM, in a
+ * deterministic order, deduped-by-value upstream. Children are aligned with an
+ * LCS (by tag+id) so a node the client injects mid-tree (a portal, toast, ad,
+ * or Suspense-resolved subtree) is treated as an insertion instead of shifting
+ * every sibling and cascading into false positives.
+ */
+export function collectDivergences(
+  serverRoot: Element,
+  clientRoot: Element,
+  limit = 60,
+): Divergence[] {
+  const out: Divergence[] = [];
+  collectChildren(serverRoot, clientRoot, tagPath(clientRoot), out, limit);
+  return out;
+}
+
+export function collectSnapshotAgainstDom(
+  serverHtml: string,
+  clientRoot: Element,
+  limit = 60,
+): Divergence[] {
+  const serverRoot = parseServerHtml(serverHtml, clientRoot.tagName);
+  return collectDivergences(serverRoot, clientRoot, limit);
+}
+
+// Back-compat single-divergence helpers (used by tests / message-less paths).
 export function diffTrees(
   serverRoot: Element,
   clientRoot: Element,
-  basePath = tagPath(clientRoot),
 ): Divergence | null {
-  return diffChildren(serverRoot, clientRoot, basePath);
+  return collectDivergences(serverRoot, clientRoot, 1)[0] ?? null;
 }
 
 export function diffSnapshotAgainstDom(
   serverHtml: string,
   clientRoot: Element,
 ): Divergence | null {
-  const serverRoot = parseServerHtml(serverHtml, clientRoot.tagName);
-  return diffTrees(serverRoot, clientRoot);
+  return collectSnapshotAgainstDom(serverHtml, clientRoot, 1)[0] ?? null;
 }
 
-function diffChildren(
+function collectChildren(
   serverParent: Node,
   clientParent: Node,
   parentPath: string,
-): Divergence | null {
+  out: Divergence[],
+  limit: number,
+): void {
+  if (out.length >= limit) return;
   const serverChildren = meaningfulChildNodes(serverParent);
   const clientChildren = meaningfulChildNodes(clientParent);
-  const max = Math.max(serverChildren.length, clientChildren.length);
+  const parentPending = hasPendingSuspense(serverParent);
+  const parentTag = elementTag(clientParent);
+  const pairs = alignChildren(serverChildren, clientChildren);
 
-  for (let i = 0; i < max; i++) {
-    const serverNode = serverChildren[i] ?? null;
-    const clientNode = clientChildren[i] ?? null;
-    const path = childPath(parentPath, (clientNode ?? serverNode) as Node, i);
+  let index = 0;
+  for (let k = 0; k < pairs.length; k++) {
+    if (out.length >= limit) return;
+    const [serverNode, clientNode] = pairs[k]!;
+
+    // Coalesce an adjacent delete+insert into one `structure` swap (e.g. server
+    // <b>, client <i> at the same slot), so one logical change isn't two reports.
+    if (serverNode && !clientNode && k + 1 < pairs.length) {
+      const [nextServer, nextClient] = pairs[k + 1]!;
+      if (!nextServer && nextClient && !isInjectedContainer(nextClient)) {
+        const path = childPath(parentPath, nextClient, index);
+        index += 1;
+        k += 1;
+        out.push({
+          kind: 'structure',
+          path,
+          tagName: elementTag(nextClient),
+          parentTagName: parentTag,
+          server: serialize(serverNode),
+          client: serialize(nextClient),
+          element: asElement(nextClient),
+        });
+        continue;
+      }
+    }
+
+    const anchor = clientNode ?? serverNode;
+    if (!anchor) continue;
+    const path = childPath(parentPath, anchor, index);
+    index += 1;
 
     if (serverNode && !clientNode) {
-      return {
+      // Server rendered a node the client dropped — a real structural mismatch.
+      out.push({
         kind: 'node-removed',
         path,
         tagName: elementTag(serverNode),
-        parentTagName: elementTag(clientParent),
+        parentTagName: parentTag,
         server: serialize(serverNode),
         client: null,
         element: asElement(clientParent),
-      };
-    }
-    if (!serverNode && clientNode) {
-      return {
+      });
+    } else if (!serverNode && clientNode) {
+      // Client rendered an extra node. Skip injections (portals, toasts, ads,
+      // modals) and Suspense-resolved content — those are not the dev's bug.
+      if (isInjectedContainer(clientNode)) continue;
+      if (clientNode.nodeType === Node.ELEMENT_NODE && parentPending) continue;
+      out.push({
         kind: 'node-added',
         path,
         tagName: elementTag(clientNode),
-        parentTagName: elementTag(clientParent),
+        parentTagName: parentTag,
         server: null,
         client: serialize(clientNode),
         element: asElement(clientNode),
-      };
+      });
+    } else if (serverNode && clientNode) {
+      collectNode(serverNode, clientNode, path, parentTag, out, limit);
     }
-    if (!serverNode || !clientNode) continue;
-
-    const divergence = diffNode(
-      serverNode,
-      clientNode,
-      path,
-      elementTag(clientParent),
-    );
-    if (divergence) return divergence;
   }
-  return null;
 }
 
-function diffNode(
+function collectNode(
   serverNode: Node,
   clientNode: Node,
   path: string,
   parentTag: string | undefined,
-): Divergence | null {
+  out: Divergence[],
+  limit: number,
+): void {
   if (serverNode.nodeType !== clientNode.nodeType) {
-    return {
+    out.push({
       kind: 'structure',
       path,
       tagName: elementTag(clientNode),
@@ -88,7 +142,8 @@ function diffNode(
       server: serialize(serverNode),
       client: serialize(clientNode),
       element: asElement(clientNode),
-    };
+    });
+    return;
   }
 
   if (
@@ -98,16 +153,16 @@ function diffNode(
     const serverText = serverNode.textContent ?? '';
     const clientText = clientNode.textContent ?? '';
     if (serverText !== clientText) {
-      return {
+      out.push({
         kind: 'text',
         path,
         parentTagName: parentTag,
         server: serverText,
         client: clientText,
         element: asElement(clientNode.parentNode),
-      };
+      });
     }
-    return null;
+    return;
   }
 
   if (serverNode.nodeType === Node.ELEMENT_NODE) {
@@ -115,7 +170,7 @@ function diffNode(
     const clientEl = clientNode as Element;
 
     if (serverEl.tagName !== clientEl.tagName) {
-      return {
+      out.push({
         kind: 'structure',
         path,
         tagName: clientEl.tagName,
@@ -123,16 +178,15 @@ function diffNode(
         server: serialize(serverEl),
         client: serialize(clientEl),
         element: clientEl,
-      };
+      });
+      return;
     }
 
     const attrDivergence = diffAttributes(serverEl, clientEl, path, parentTag);
-    if (attrDivergence) return attrDivergence;
+    if (attrDivergence) out.push(attrDivergence);
 
-    return diffChildren(serverEl, clientEl, path);
+    collectChildren(serverEl, clientEl, path, out, limit);
   }
-
-  return null;
 }
 
 function diffAttributes(
@@ -177,13 +231,9 @@ function normalizeAttr(name: string, value: string | null): string | null {
   return value;
 }
 
-/**
- * Canonicalize an inline style string so the server snapshot (React's raw
- * serialization, e.g. `color:#0f172a`) compares equal to the live DOM value the
- * browser has normalized via CSSOM (e.g. `color: rgb(15, 23, 42);`). We round
- * each declaration through a throwaway element's CSSOM, then sort so property
- * order doesn't matter either.
- */
+// Canonicalize an inline style through the CSSOM so React's raw serialization
+// (`color:#0f172a`) compares equal to the browser-normalized live value
+// (`color: rgb(15, 23, 42);`), order-independent.
 function normalizeStyle(value: string): string {
   if (typeof document !== 'undefined') {
     try {
@@ -207,6 +257,70 @@ function normalizeStyle(value: string): string {
     .join(';');
 }
 
+// ---- alignment ------------------------------------------------------------
+
+function nodeKey(node: Node): string {
+  if (node.nodeType === Node.ELEMENT_NODE) {
+    const el = node as Element;
+    return el.id ? `${el.tagName}#${el.id}` : el.tagName;
+  }
+  if (node.nodeType === Node.TEXT_NODE) return '#text';
+  return '#other';
+}
+
+// Align two child lists by an LCS on their keys, so inserted/removed nodes are
+// identified rather than shifting the whole comparison. Falls back to index
+// pairing for very large lists (keeps it O(n) there).
+function alignChildren(
+  server: Node[],
+  client: Node[],
+): Array<[Node | null, Node | null]> {
+  const m = server.length;
+  const n = client.length;
+  if (m === 0 || n === 0 || m > 200 || n > 200 || m * n > 10000) {
+    const pairs: Array<[Node | null, Node | null]> = [];
+    const max = Math.max(m, n);
+    for (let i = 0; i < max; i++) {
+      pairs.push([server[i] ?? null, client[i] ?? null]);
+    }
+    return pairs;
+  }
+  const sk = server.map(nodeKey);
+  const ck = client.map(nodeKey);
+  const dp: number[][] = Array.from({ length: m + 1 }, () =>
+    new Array(n + 1).fill(0),
+  );
+  for (let i = m - 1; i >= 0; i--) {
+    for (let j = n - 1; j >= 0; j--) {
+      dp[i]![j] =
+        sk[i] === ck[j]
+          ? dp[i + 1]![j + 1]! + 1
+          : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!);
+    }
+  }
+  const pairs: Array<[Node | null, Node | null]> = [];
+  let i = 0;
+  let j = 0;
+  while (i < m && j < n) {
+    if (sk[i] === ck[j]) {
+      pairs.push([server[i]!, client[j]!]);
+      i++;
+      j++;
+    } else if (dp[i + 1]![j]! >= dp[i]![j + 1]!) {
+      pairs.push([server[i]!, null]);
+      i++;
+    } else {
+      pairs.push([null, client[j]!]);
+      j++;
+    }
+  }
+  while (i < m) pairs.push([server[i++]!, null]);
+  while (j < n) pairs.push([null, client[j++]!]);
+  return pairs;
+}
+
+// ---- noise / injection / suspense ----------------------------------------
+
 const NOISE_TAGS = new Set<string>([
   'SCRIPT',
   'STYLE',
@@ -215,15 +329,14 @@ const NOISE_TAGS = new Set<string>([
   'NOSCRIPT',
 ]);
 
-// Markers of ads / consent / analytics / chat widgets on a node's identity.
 const TRACKER_MARKER =
   /googlefc|adsbygoogle|google_ads|googletag|__tcfapi|onetrust|optanon|cookiebot|usercentrics|didomi|quantcast|grammarly|gtm|hotjar|fullstory|intercom|drift|zendesk|livechat|tawk|hubspot|turnstile|recaptcha/i;
 
-// Invisible utility nodes injected by third-party scripts (hidden iframes,
-// consent/analytics frames, `about:blank`). They are pure post-load noise and
-// must be skipped so they never mask the developer's real mismatch or get
-// reported themselves. This is the exact shape of Google's `googlefcInactive`
-// hidden iframe seen in the wild.
+// Elements client-side scripts/libraries mount that the server never rendered:
+// toasts, modals, portals, overlays, tooltips, consent banners, chat widgets.
+const INJECTED_MARKER =
+  /toastify|toast|modal|portal|overlay|backdrop|drawer|dialog|popover|popper|tooltip|snackbar|notification|consent|gdpr|cookie-?(?:banner|consent)|intercom|drift|crisp|tawk|zendesk|onetrust|usercentrics/i;
+
 function isThirdPartyNoiseElement(el: Element): boolean {
   const identity = `${el.getAttribute('name') ?? ''} ${el.id} ${
     typeof el.className === 'string' ? el.className : ''
@@ -244,6 +357,28 @@ function isThirdPartyNoiseElement(el: Element): boolean {
   return false;
 }
 
+// A client-only node that is a portal / toast / overlay / third-party widget —
+// never part of the app's hydration, so it must not be reported.
+function isInjectedContainer(node: Node): boolean {
+  if (node.nodeType !== Node.ELEMENT_NODE) return false;
+  const el = node as Element;
+  if (isNoiseElement(el)) return true;
+  const cls = typeof el.className === 'string' ? el.className : '';
+  if (INJECTED_MARKER.test(`${el.id} ${cls}`)) return true;
+  if (el.hasAttribute('aria-live')) return true;
+  const role = el.getAttribute('role');
+  if (role && /^(dialog|alertdialog|tooltip|status|alert)$/.test(role.trim())) {
+    return true;
+  }
+  if (el.tagName.includes('-PORTAL') || el.tagName.includes('-OVERLAY')) {
+    return true;
+  }
+  for (const attr of Array.from(el.attributes)) {
+    if (/portal|radix|headlessui|floating-ui/i.test(attr.name)) return true;
+  }
+  return false;
+}
+
 function isNoiseElement(node: Node): boolean {
   if (node.nodeType !== Node.ELEMENT_NODE) return false;
   const el = node as Element;
@@ -254,22 +389,43 @@ function isNoiseElement(node: Node): boolean {
   return false;
 }
 
+// True when a parent's server children include a *pending* Suspense boundary
+// (`<!--$?-->`), i.e. the server streamed a fallback that the client resolves to
+// different content. Those differences are expected, not bugs.
+function hasPendingSuspense(parent: Node): boolean {
+  for (const n of Array.from(parent.childNodes)) {
+    if (n.nodeType === Node.COMMENT_NODE && (n.nodeValue ?? '').startsWith('$?')) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function meaningfulChildNodes(parent: Node): Node[] {
-  const children = Array.from(parent.childNodes);
-  const hasElement = children.some(
+  const raw = Array.from(parent.childNodes);
+  const hasElement = raw.some(
     (n) => n.nodeType === Node.ELEMENT_NODE && !isNoiseElement(n),
   );
-  return children.filter((node) => {
-    if (isNoiseElement(node)) return false;
-    // Comment nodes are framework markers (React `<!--$-->` / `<!--/$-->`
-    // Suspense boundaries, RSC payload markers), never the user's real
-    // mismatch. Skipping them symmetrically avoids false positives.
-    if (node.nodeType === Node.COMMENT_NODE) return false;
-    if (node.nodeType !== Node.TEXT_NODE) return true;
+  const result: Node[] = [];
+  const boundaryStack: string[] = [];
+  for (const node of raw) {
+    if (node.nodeType === Node.COMMENT_NODE) {
+      const data = node.nodeValue ?? '';
+      if (data === '$?' || data === '$' || data === '$!') boundaryStack.push(data);
+      else if (data === '/$') boundaryStack.pop();
+      continue; // React/RSC markers are never real content.
+    }
+    // Skip fallback content inside a pending Suspense boundary.
+    if (boundaryStack.includes('$?')) continue;
+    if (isNoiseElement(node)) continue;
+    if (node.nodeType !== Node.TEXT_NODE) {
+      result.push(node);
+      continue;
+    }
     const text = node.textContent ?? '';
-    if (text.trim() !== '') return true;
-    return !hasElement;
-  });
+    if (text.trim() !== '' || !hasElement) result.push(node);
+  }
+  return result;
 }
 
 function serialize(node: Node): string {
@@ -296,8 +452,10 @@ function tagPath(el: Element): string {
 
 function childPath(parentPath: string, node: Node, index: number): string {
   if (node.nodeType === Node.ELEMENT_NODE) {
-    const tag = (node as Element).tagName.toLowerCase();
-    return `${parentPath} > ${tag}:nth-child(${index + 1})`;
+    const el = node as Element;
+    const tag = el.tagName.toLowerCase();
+    const id = el.id ? `#${el.id}` : '';
+    return `${parentPath} > ${tag}${id}:nth-child(${index + 1})`;
   }
   if (node.nodeType === Node.COMMENT_NODE) {
     return `${parentPath} > #comment[${index}]`;

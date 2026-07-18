@@ -3,9 +3,8 @@
 [![npm version](https://img.shields.io/npm/v/why-hydration.svg)](https://www.npmjs.com/package/why-hydration)
 [![npm downloads](https://img.shields.io/npm/dm/why-hydration.svg)](https://www.npmjs.com/package/why-hydration)
 [![minzipped size](https://img.shields.io/bundlephobia/minzip/why-hydration.svg)](https://bundlephobia.com/package/why-hydration)
-[![license: MIT](https://img.shields.io/npm/l/why-hydration.svg)](LICENSE)
 
-📦 **npm:** https://www.npmjs.com/package/why-hydration
+📦 **npm:** https://www.npmjs.com/package/why-hydration &nbsp;·&nbsp; 🐙 **GitHub:** https://github.com/razan-aboushi/why-hydration &nbsp;·&nbsp; 💼 **Author:** [Razan Aboushi](https://www.linkedin.com/in/razan-aboushi/)
 
 **Tells you which component broke hydration, what differed, and how to fix it — in dev, with zero production cost.**
 
@@ -428,14 +427,24 @@ field in `package.json` to match your URL.
 **Can I send reports to my logging?** Yes — pass `onReport`; you receive the full
 `HydrationReport`.
 
-**Does it slow my app down?** No. It's dev-only, runs the diff once after
-hydration (plus once per real React signal), and holds no standing observers.
+**Why do results now show all at once and stay the same on refresh?** The diff
+aligns children with an LCS and collects every mismatch deterministically, so
+injected nodes (toasts, portals, ads) can't shift the comparison and change the
+results between refreshes.
+
+**Does it slow my app down?** No. It's dev-only, diffs across a short settling
+window right after hydration (React applies client values a few hundred ms
+later), then stops — no standing observers.
 
 ## Contributing
 
 Adding a cause category is a self-contained change — see
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## License
+## Author
 
-[MIT](LICENSE) © [Razan Aboushi](https://github.com/razan-aboushi)
+Built by **[Razan Aboushi](https://www.linkedin.com/in/razan-aboushi/)** ·
+[GitHub](https://github.com/razan-aboushi) ·
+[LinkedIn](https://www.linkedin.com/in/razan-aboushi/)
+
+© 2026 Razan Aboushi. All rights reserved.

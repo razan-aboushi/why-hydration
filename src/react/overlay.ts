@@ -90,6 +90,20 @@ const STYLES = `
 .wh-docs { display: inline-block; margin-top: 6px; color: #60a5fa; text-decoration: none; font-size: 11px; }
 .wh-docs:hover { text-decoration: underline; }
 .wh-empty-value { color: #6b7280; font-style: italic; }
+.wh-hint {
+  display: none; align-items: center; gap: 8px;
+  padding: 7px 12px; font-size: 11px; color: #cbd5e1;
+  background: #0d1220; border-top: 1px solid #1f2937;
+  animation: wh-fade .2s ease;
+}
+.wh-hint.wh-show { display: flex; }
+.wh-hint-text { flex: 1; }
+.wh-hint-x {
+  appearance: none; border: 0; background: transparent; cursor: pointer;
+  color: #9ca3af; font-size: 14px; line-height: 1; padding: 2px 4px;
+}
+.wh-hint-x:hover { color: #f3f4f6; }
+@keyframes wh-fade { from { opacity: 0 } to { opacity: 1 } }
 @media (max-width: 420px) {
   .wh-panel { width: auto; max-height: min(80vh, 640px); }
   .wh-bottom-right, .wh-bottom-left { left: 8px; right: 8px; }
@@ -203,6 +217,10 @@ export function createOverlay(options: OverlayOptions = {}): OverlayHandle {
   let host: HTMLElement | null = null;
   let listEl: HTMLElement | null = null;
   let countEl: HTMLElement | null = null;
+  let hintEl: HTMLElement | null = null;
+  let hintTextEl: HTMLElement | null = null;
+  let hintTimer: ReturnType<typeof setTimeout> | null = null;
+  let hintDismissed = false;
   let count = 0;
 
   function ensureMounted(): void {
@@ -236,6 +254,17 @@ export function createOverlay(options: OverlayOptions = {}): OverlayHandle {
     listEl = el('div', 'wh-list');
     panel.appendChild(listEl);
 
+    hintEl = el('div', 'wh-hint');
+    hintTextEl = el('span', 'wh-hint-text');
+    hintEl.appendChild(hintTextEl);
+    const hintX = el('button', 'wh-hint-x', '✕');
+    hintX.setAttribute('aria-label', 'Dismiss hint');
+    hintX.addEventListener('click', () => dismissHint());
+    hintEl.appendChild(hintX);
+    // Hide the hint once the user scrolls (they've found the rest).
+    listEl.addEventListener('scroll', () => dismissHint());
+    panel.appendChild(hintEl);
+
     shadow.appendChild(panel);
     document.body.appendChild(host);
 
@@ -244,11 +273,42 @@ export function createOverlay(options: OverlayOptions = {}): OverlayHandle {
     });
   }
 
+  function dismissHint(): void {
+    hintDismissed = true;
+    hintEl?.classList.remove('wh-show');
+    if (hintTimer) {
+      clearTimeout(hintTimer);
+      hintTimer = null;
+    }
+  }
+
+  // Show a "more below" hint when the list overflows, auto-hiding after 5s.
+  function updateHint(): void {
+    if (!listEl || !hintEl || !hintTextEl || hintDismissed) return;
+    const overflowing = listEl.scrollHeight - listEl.clientHeight > 8;
+    const atBottom =
+      listEl.scrollTop + listEl.clientHeight >= listEl.scrollHeight - 8;
+    if (overflowing && !atBottom) {
+      hintTextEl.textContent = `↓ ${count} issues — scroll for more`;
+      hintEl.classList.add('wh-show');
+      if (hintTimer) clearTimeout(hintTimer);
+      hintTimer = setTimeout(() => {
+        hintEl?.classList.remove('wh-show');
+      }, 5000);
+    } else {
+      hintEl.classList.remove('wh-show');
+    }
+  }
+
   function destroy(): void {
+    if (hintTimer) clearTimeout(hintTimer);
+    hintTimer = null;
     host?.remove();
     host = null;
     listEl = null;
     countEl = null;
+    hintEl = null;
+    hintTextEl = null;
   }
 
   function push(report: HydrationReport): void {
@@ -256,6 +316,7 @@ export function createOverlay(options: OverlayOptions = {}): OverlayHandle {
     count += 1;
     if (countEl) countEl.textContent = String(count);
     listEl?.appendChild(renderCard(report));
+    updateHint();
   }
 
   return { push, destroy };

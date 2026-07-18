@@ -1,9 +1,9 @@
 {
   "name": "why-hydration",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Tells you which component broke hydration, what differed, and how to fix it — in dev, with zero production cost.",
-  "license": "MIT",
-  "author": "Razan Aboushi (https://github.com/razan-aboushi)",
+  "license": "UNLICENSED",
+  "author": "Razan Aboushi (https://www.linkedin.com/in/razan-aboushi/)",
   "homepage": "https://github.com/razan-aboushi/why-hydration#readme",
   "repository": {
     "type": "git",
@@ -89,7 +89,7 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsup",

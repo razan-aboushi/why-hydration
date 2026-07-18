@@ -211,3 +211,68 @@ export function parseHydrationMessage(message: string): Divergence | null {
     reactMessage: message,
   };
 }
+
+/**
+ * Extract EVERY divergence a single React hydration message describes. A modern
+ * diff tree can list several changed attributes/text nodes at once; class/style
+ * mismatches are only visible here (React doesn't patch attributes into the DOM),
+ * so we must not stop at the first.
+ */
+export function parseAllHydrationDivergences(message: string): Divergence[] {
+  if (!isHydrationMessage(message)) return [];
+
+  const plus: string[] = [];
+  const minus: string[] = [];
+  for (const raw of message.split('\n')) {
+    const line = raw.trim();
+    const p = /^\+\s+(.+)$/.exec(line);
+    const mn = /^-\s+(.+)$/.exec(line);
+    if (p && p[1]) plus.push(p[1].trim());
+    else if (mn && mn[1]) minus.push(mn[1].trim());
+  }
+  if (plus.length === 0 && minus.length === 0) {
+    const single = parseHydrationMessage(message);
+    return single ? [single] : [];
+  }
+
+  const out: Divergence[] = [];
+  const attrMinus = minus.filter((m) => ATTR_RE.test(m));
+  const usedMinus = new Set<number>();
+
+  for (const p of plus) {
+    const pm = ATTR_RE.exec(p);
+    if (!pm) continue;
+    const name = pm[1];
+    const clientValue = pm[2] ?? pm[3] ?? '';
+    const idx = attrMinus.findIndex((m, k) => {
+      if (usedMinus.has(k)) return false;
+      const parsed = ATTR_RE.exec(m);
+      return parsed?.[1] === name;
+    });
+    if (idx >= 0) {
+      usedMinus.add(idx);
+      const parsed = ATTR_RE.exec(attrMinus[idx]!);
+      out.push({
+        kind: 'attribute',
+        path: 'body',
+        attribute: name,
+        server: parsed ? (parsed[2] ?? parsed[3] ?? '') : '',
+        client: clientValue,
+        reactMessage: message,
+      });
+    }
+  }
+
+  const textPlus = plus.filter((p) => !ATTR_RE.test(p));
+  const textMinus = minus.filter((m) => !ATTR_RE.test(m));
+  const len = Math.max(textPlus.length, textMinus.length);
+  for (let i = 0; i < len; i++) {
+    const client = textPlus[i] ?? null;
+    const server = textMinus[i] ?? null;
+    if (client !== null || server !== null) {
+      out.push({ kind: 'text', path: 'body', server, client, reactMessage: message });
+    }
+  }
+
+  return out.length ? out : (parseHydrationMessage(message) ? [parseHydrationMessage(message)!] : []);
+}

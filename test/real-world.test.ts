@@ -3,7 +3,10 @@
 
 import { describe, expect, it } from 'vitest';
 import { classify } from '../src/core/classify';
-import { diffSnapshotAgainstDom } from '../src/core/diff';
+import {
+  collectSnapshotAgainstDom,
+  diffSnapshotAgainstDom,
+} from '../src/core/diff';
 import { isSameNumberDifferentSeparators } from '../src/core/classify/detectors';
 import type { Divergence } from '../src/core/types';
 
@@ -99,6 +102,53 @@ describe('real-world false positives', () => {
         client: 'display:none',
       };
       expect(classify(d).category).toBe('attribute-mismatch');
+    });
+  });
+
+  // Screenshot: react-toastify injects <section class="Toastify"> mid-tree; the
+  // old index-based diff then compared <nav> against it and cascaded false
+  // positives across every following sibling.
+  describe('client-injected containers do not cascade (LCS alignment)', () => {
+    it('skips an injected Toastify section and keeps siblings aligned', () => {
+      const server = '<header>a</header><footer>b</footer>';
+      const live =
+        '<header>a</header>' +
+        '<section class="Toastify" aria-live="polite">x</section>' +
+        '<footer>b</footer>';
+      expect(collectSnapshotAgainstDom(server, client(live))).toEqual([]);
+    });
+
+    it('finds a real mismatch even with an injection in between', () => {
+      const server = '<header>a</header><footer>OLD</footer>';
+      const live =
+        '<header>a</header>' +
+        '<div class="ReactModalPortal"></div>' +
+        '<footer>NEW</footer>';
+      const found = collectSnapshotAgainstDom(server, client(live));
+      expect(found).toHaveLength(1);
+      expect(found[0]!.kind).toBe('text');
+      expect(found[0]!.server).toBe('OLD');
+      expect(found[0]!.client).toBe('NEW');
+    });
+  });
+
+  // Screenshot: <p>Loading…</p> (server Suspense fallback) vs client content.
+  describe('pending Suspense fallbacks are not mismatches', () => {
+    it('skips content inside a pending Suspense boundary', () => {
+      const server = '<!--$?--><p>Loading…</p><!--/$-->';
+      const live = '<div class="loaded">real content</div>';
+      expect(collectSnapshotAgainstDom(server, client(live))).toEqual([]);
+    });
+  });
+
+  // Issues 3 & 7: report ALL mismatches on the page, deterministically.
+  describe('collects every mismatch on the page', () => {
+    it('returns all divergences, not just the first', () => {
+      const server = '<span>a</span><span>b</span><span>c</span>';
+      const live = '<span>x</span><span>b</span><span>z</span>';
+      const found = collectSnapshotAgainstDom(server, client(live));
+      expect(found).toHaveLength(2);
+      expect(found.map((d) => d.client).sort()).toEqual(['x', 'z']);
     });
   });
 });

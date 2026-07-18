@@ -48,7 +48,7 @@ export class InspectorController {
   private readonly cleanups: Array<() => void> = [];
   private started = false;
   private pendingContext: DetectionContext = {};
-  private messageReported = false;
+  private readonly messages = new Set<string>();
   private settlingTimers: Array<ReturnType<typeof setTimeout>> = [];
 
   constructor(options: InspectorOptions = {}) {
@@ -64,7 +64,7 @@ export class InspectorController {
     if (this.started || !isDev || typeof window === 'undefined') return;
     this.started = true;
     this.pendingContext = {};
-    this.messageReported = false;
+    this.messages.clear();
 
     if (this.options.onReport) {
       this.collector.addSink(this.options.onReport);
@@ -79,6 +79,7 @@ export class InspectorController {
     }
 
     const restore = installConsoleInterceptor((message) => {
+      this.messages.add(message);
       this.mergeContext({ reactMessage: message });
       this.scheduleInspect();
     });
@@ -105,10 +106,12 @@ export class InspectorController {
     info?: { componentStack?: string },
   ): void => {
     if (!isDev) return;
+    const message = error instanceof Error ? error.message : String(error);
+    this.messages.add(message);
     this.mergeContext({
       componentStack: info?.componentStack,
       component: firstComponentFromStack(info?.componentStack),
-      reactMessage: error instanceof Error ? error.message : String(error),
+      reactMessage: message,
     });
     this.scheduleInspect();
   };
@@ -125,6 +128,7 @@ export class InspectorController {
   stop(): void {
     for (const timer of this.settlingTimers.splice(0)) clearTimeout(timer);
     for (const cleanup of this.cleanups.splice(0)) cleanup();
+    this.messages.clear();
     this.started = false;
   }
 
@@ -145,6 +149,8 @@ export class InspectorController {
     ) {
       return;
     }
+    // 1) DOM diff — every visible mismatch (text/attribute/structure), precise
+    //    path + component/source from the fiber.
     const selectors = this.options.roots ?? snapshotSelectors();
     const seen = new Set<Element>();
     for (const selector of selectors) {
@@ -156,21 +162,12 @@ export class InspectorController {
       );
     }
 
-    // Message fallback for mismatches the DOM diff can't locate (no snapshot,
-    // or invalid nesting the browser silently repaired). Double-reporting with
-    // a later precise DOM report is prevented by value-based dedup in the
-    // collector (same server/client values collapse regardless of path).
-    if (
-      this.collector.getReports().length === 0 &&
-      this.pendingContext.reactMessage &&
-      !this.messageReported
-    ) {
-      this.messageReported = true;
-      reportFromMessage(
-        this.pendingContext.reactMessage,
-        this.collector,
-        this.pendingContext,
-      );
+    // 2) React's own messages — the ONLY source for class/style mismatches
+    //    (React doesn't patch attributes into the DOM) and for cases with no
+    //    snapshot. Value-based dedup means this never double-reports a mismatch
+    //    the DOM diff already found.
+    for (const message of this.messages) {
+      reportFromMessage(message, this.collector, this.pendingContext);
     }
   }
 
