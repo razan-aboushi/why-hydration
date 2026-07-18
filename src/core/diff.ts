@@ -215,12 +215,42 @@ const NOISE_TAGS = new Set<string>([
   'NOSCRIPT',
 ]);
 
+// Markers of ads / consent / analytics / chat widgets on a node's identity.
+const TRACKER_MARKER =
+  /googlefc|adsbygoogle|google_ads|googletag|__tcfapi|onetrust|optanon|cookiebot|usercentrics|didomi|quantcast|grammarly|gtm|hotjar|fullstory|intercom|drift|zendesk|livechat|tawk|hubspot|turnstile|recaptcha/i;
+
+// Invisible utility nodes injected by third-party scripts (hidden iframes,
+// consent/analytics frames, `about:blank`). They are pure post-load noise and
+// must be skipped so they never mask the developer's real mismatch or get
+// reported themselves. This is the exact shape of Google's `googlefcInactive`
+// hidden iframe seen in the wild.
+function isThirdPartyNoiseElement(el: Element): boolean {
+  const identity = `${el.getAttribute('name') ?? ''} ${el.id} ${
+    typeof el.className === 'string' ? el.className : ''
+  }`;
+  if (TRACKER_MARKER.test(identity)) return true;
+  if (el.tagName === 'IFRAME') {
+    const src = el.getAttribute('src') ?? '';
+    const style = (el.getAttribute('style') ?? '').toLowerCase();
+    const hidden =
+      /display\s*:\s*none/.test(style) ||
+      /visibility\s*:\s*hidden/.test(style) ||
+      /(?:left|top)\s*:\s*-\d{3,}px/.test(style) ||
+      /(?:width|height)\s*:\s*0(?:px)?\b/.test(style) ||
+      el.hasAttribute('hidden') ||
+      el.getAttribute('aria-hidden') === 'true';
+    if (src === 'about:blank' || hidden) return true;
+  }
+  return false;
+}
+
 function isNoiseElement(node: Node): boolean {
   if (node.nodeType !== Node.ELEMENT_NODE) return false;
   const el = node as Element;
   if (el.hasAttribute('data-why-hydration')) return true;
   if (NOISE_TAGS.has(el.tagName)) return true;
   if (el.tagName.includes('-ROUTE-ANNOUNCER')) return true;
+  if (isThirdPartyNoiseElement(el)) return true;
   return false;
 }
 

@@ -39,7 +39,13 @@ export function createConsoleReporter(): ReportSink {
     console.log('%cServer:%c', 'color:#fb7185', '', report.server ?? '(none)');
     console.log('%cClient:%c', 'color:#4ade80', '', report.client ?? '(none)');
     if (report.component) {
-      console.log('%cComponent:%c', DIM, '', report.component);
+      console.log('%cComponent:%c', DIM, '', `<${report.component}>`);
+    }
+    if (report.location?.file) {
+      const loc = report.location.line
+        ? `${report.location.file}:${report.location.line}`
+        : report.location.file;
+      console.log('%cSource:%c', DIM, '', loc);
     }
     console.log('%cWhy:%c', DIM, '', report.cause.explanation);
     console.log('%cFix:%c', 'color:#86efac', '', report.cause.suggestion);

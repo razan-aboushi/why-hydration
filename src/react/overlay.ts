@@ -20,6 +20,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   'invalid-html-nesting': 'Invalid HTML nesting',
   'whitespace-minification': 'Whitespace / minification',
   'third-party-dom-mutation': 'Third-party DOM mutation',
+  'attribute-mismatch': 'Attribute mismatch',
   unknown: 'Unknown',
 };
 
@@ -72,8 +73,10 @@ const STYLES = `
 }
 .wh-conf { margin-left: auto; font-size: 11px; color: #6b7280; }
 .wh-body { padding: 0 10px 10px; }
-.wh-where { font-size: 11px; color: #9ca3af; word-break: break-all; margin-bottom: 8px; }
+.wh-where { font-size: 11px; color: #9ca3af; word-break: break-all; margin-bottom: 4px; }
 .wh-where code { color: #93c5fd; }
+.wh-comp { color: #f3f4f6; font-weight: 600; }
+.wh-loc { font-size: 11px; color: #7dd3fc; word-break: break-all; margin-bottom: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .wh-diff { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
 .wh-side { border-radius: 8px; padding: 6px 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; word-break: break-word; }
 .wh-server { background: rgba(244,63,94,.08); border: 1px solid rgba(244,63,94,.35); }
@@ -106,6 +109,16 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+function shortenPath(file: string): string {
+  const normalized = file.replace(/\\/g, '/');
+  const marker = normalized.match(/(?:^|\/)(?:src|app|pages|components)\//);
+  if (marker && marker.index != null) {
+    return normalized.slice(marker.index).replace(/^\//, '');
+  }
+  const parts = normalized.split('/');
+  return parts.slice(-2).join('/');
+}
+
 function renderValue(value: string | null): HTMLElement {
   if (value == null || value === '') {
     return el('span', 'wh-empty-value', value === '' ? '(empty)' : '(none)');
@@ -130,12 +143,12 @@ function renderCard(report: HydrationReport): HTMLElement {
   const body = el('div', 'wh-body');
 
   const where = el('div', 'wh-where');
-  const label = report.component
-    ? `${report.component} · `
-    : report.node.tagName
-      ? `<${report.node.tagName.toLowerCase()}> · `
-      : '';
-  where.append(label);
+  if (report.component) {
+    where.appendChild(el('strong', 'wh-comp', `<${report.component}>`));
+    where.append(' · ');
+  } else if (report.node.tagName) {
+    where.append(`<${report.node.tagName.toLowerCase()}> · `);
+  }
   const code = el('code');
   code.textContent = report.node.path;
   where.appendChild(code);
@@ -143,6 +156,15 @@ function renderCard(report: HydrationReport): HTMLElement {
     where.append(` · @${report.node.attribute}`);
   }
   body.appendChild(where);
+
+  if (report.location?.file) {
+    const loc = el('div', 'wh-loc');
+    const file = shortenPath(report.location.file);
+    loc.textContent = report.location.line
+      ? `${file}:${report.location.line}`
+      : file;
+    body.appendChild(loc);
+  }
 
   const diff = el('div', 'wh-diff');
   const server = el('div', 'wh-side wh-server');

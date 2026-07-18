@@ -2,11 +2,13 @@ import type { Cause, Classifier, Divergence } from '../types';
 import {
   hasArabicIndicDigits,
   hasLatinDigits,
+  isContentAttribute,
   isExtensionAttribute,
   isInvalidNesting,
   isRandomLike,
   isSameDateDifferentOrder,
   isSameNumberDifferentSeparators,
+  looksLikeThirdPartyNode,
   looksLikeTime,
   messageIndicatesInvalidNesting,
   toTimestamp,
@@ -28,8 +30,20 @@ function bothDiffer(d: Divergence): d is Divergence & {
   );
 }
 
+// The value-formatting rules (random / date / locale) only make sense for
+// human-facing text: text nodes and content-like attributes. Applied to
+// `class`/`style`/`id`/etc. they false-match (e.g. a class list with digits
+// looks like "the same number with different separators").
+function isValueDivergence(d: Divergence): boolean {
+  if (d.kind === 'text') return true;
+  if (d.kind === 'attribute' && d.attribute) {
+    return isContentAttribute(d.attribute);
+  }
+  return false;
+}
+
 const nonDeterministic: Classifier = (d) => {
-  if (d.kind !== 'text' && d.kind !== 'attribute') return null;
+  if (!isValueDivergence(d)) return null;
   if (!bothDiffer(d)) return null;
   if (!isRandomLike(d.server) || !isRandomLike(d.client)) return null;
   return {
@@ -48,7 +62,7 @@ const nonDeterministic: Classifier = (d) => {
 };
 
 const dateTime: Classifier = (d) => {
-  if (d.kind !== 'text' && d.kind !== 'attribute') return null;
+  if (!isValueDivergence(d)) return null;
   if (!bothDiffer(d)) return null;
   const serverTs = toTimestamp(d.server);
   const clientTs = toTimestamp(d.client);
@@ -75,7 +89,7 @@ const dateTime: Classifier = (d) => {
 };
 
 const localeFormat: Classifier = (d) => {
-  if (d.kind !== 'text' && d.kind !== 'attribute') return null;
+  if (!isValueDivergence(d)) return null;
   if (!bothDiffer(d)) return null;
   const { server, client } = d;
 
@@ -250,18 +264,106 @@ const thirdPartyDomMutation: Classifier = (d) => {
       };
     }
   }
+
+  // An injected node (iframe/embed, or a known ads/consent/analytics/chat
+  // marker) the server never rendered — not part of the app's hydration.
+  if (
+    (d.kind === 'node-added' || d.kind === 'node-removed') &&
+    looksLikeThirdPartyNode(d.client ?? d.server, d.tagName)
+  ) {
+    const tag = (d.tagName ?? 'element').toLowerCase();
+    return {
+      category: 'third-party-dom-mutation',
+      confidence: 0.7,
+      explanation:
+        `A <${tag}> was injected by a third-party script or browser extension ` +
+        '(ads, consent, analytics, chat) after the server render. It is not ' +
+        "part of your app's hydration, so this is usually harmless noise.",
+      suggestion:
+        'If React warns about it, add `suppressHydrationWarning` to the ' +
+        'nearest server-rendered wrapper, or load the third-party script after ' +
+        'hydration (e.g. Next.js `<Script strategy="afterInteractive">`).',
+      docsUrl: docs('third-party-dom-mutation'),
+    };
+  }
   return null;
+};
+
+// Class / style / generic attribute mismatch that no value rule explained.
+// This is where the `forceHide` class-toggle case lands, with the exact tokens.
+const attributeMismatch: Classifier = (d) => {
+  if (d.kind !== 'attribute' || !d.attribute) return null;
+  const attr = d.attribute.toLowerCase();
+  const server = d.server ?? '';
+  const client = d.client ?? '';
+
+  if (attr === 'class' || attr === 'classname') {
+    const serverSet = new Set(server.split(/\s+/).filter(Boolean));
+    const clientSet = new Set(client.split(/\s+/).filter(Boolean));
+    const added = [...clientSet].filter((c) => !serverSet.has(c));
+    const removed = [...serverSet].filter((c) => !clientSet.has(c));
+    const parts: string[] = [];
+    if (added.length) parts.push(`added on client: ${added.join(', ')}`);
+    if (removed.length) parts.push(`removed on client: ${removed.join(', ')}`);
+    const detail = parts.length ? ` (${parts.join('; ')})` : '';
+    return {
+      category: 'attribute-mismatch',
+      confidence: 0.8,
+      explanation:
+        `The \`class\` differs between server and client${detail}. A class was ` +
+        'applied conditionally on the client — commonly a viewport, media-query, ' +
+        'theme, or feature-flag check that runs during the first render.',
+      suggestion:
+        'Render the same className on the server and the first client paint. ' +
+        'Move client-only conditions into `useEffect`/a mounted flag, or drive ' +
+        'the visual change with CSS media queries instead of a JS class toggle.',
+      docsUrl: docs('attribute-mismatch'),
+    };
+  }
+
+  if (attr === 'style') {
+    return {
+      category: 'attribute-mismatch',
+      confidence: 0.75,
+      explanation:
+        'The inline `style` differs between server and client — an inline ' +
+        'style was computed from client-only state (viewport size, theme, ' +
+        'scroll position) during render.',
+      suggestion:
+        'Compute the style after mount (`useEffect`) so the first client render ' +
+        'matches the server, or move it to a CSS class / media query.',
+      docsUrl: docs('attribute-mismatch'),
+    };
+  }
+
+  return {
+    category: 'attribute-mismatch',
+    confidence: 0.6,
+    explanation:
+      `The \`${d.attribute}\` attribute differs between server (\`${server}\`) ` +
+      `and client (\`${client}\`) — its value was derived from something that ` +
+      'differs between the server and the first client render.',
+    suggestion:
+      'Make the attribute deterministic across server and client, or set it ' +
+      'after mount so the first client render matches the server HTML.',
+    docsUrl: docs('attribute-mismatch'),
+  };
 };
 
 export const BUILT_IN_RULES: readonly Classifier[] = [
   nonDeterministic,
   dateTime,
   localeFormat,
+  // Third-party runs before browser-only/viewport so an injected iframe is
+  // labelled correctly instead of "browser-only API" or "viewport branching".
+  thirdPartyDomMutation,
   browserOnlyApi,
   viewportBranching,
   invalidNesting,
   whitespaceMinification,
-  thirdPartyDomMutation,
+  // Catch-all for class/style/generic attribute diffs — after the specific
+  // rules so extension attributes and content values are handled first.
+  attributeMismatch,
 ];
 
 export const UNKNOWN_CAUSE: Cause = {

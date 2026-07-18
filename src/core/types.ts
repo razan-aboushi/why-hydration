@@ -14,6 +14,7 @@ export type HydrationCauseCategory =
   | 'invalid-html-nesting'
   | 'whitespace-minification'
   | 'third-party-dom-mutation'
+  | 'attribute-mismatch'
   | 'unknown';
 
 export interface Divergence {

@@ -10,6 +10,7 @@ import type {
 } from '../core/types';
 import { createConsoleReporter, installConsoleInterceptor } from './console';
 import { createOverlay, type OverlayOptions } from './overlay';
+import { resolveReactSource } from './fiber';
 
 export interface InspectorOptions {
   overlay?: boolean | OverlayOptions;
@@ -48,6 +49,7 @@ export class InspectorController {
   private started = false;
   private pendingContext: DetectionContext = {};
   private messageReported = false;
+  private settlingTimers: Array<ReturnType<typeof setTimeout>> = [];
 
   constructor(options: InspectorOptions = {}) {
     this.options = options;
@@ -82,7 +84,20 @@ export class InspectorController {
     });
     this.cleanups.push(restore);
 
+    this.scheduleSettlingInspections();
+  }
+
+  // React applies client values to mismatched subtrees via a client re-render a
+  // few hundred ms after the initial hydration commit. We diff once per frame
+  // and then across this short "settling window" to catch that, deduped. This
+  // is a bounded, one-shot window — NOT a standing observer — so DOM changes
+  // from later app state are never mistaken for hydration mismatches.
+  private scheduleSettlingInspections(): void {
     this.scheduleInspect();
+    for (const delay of [80, 250, 700, 1500]) {
+      const timer = setTimeout(() => this.inspectAllRoots(), delay);
+      this.settlingTimers.push(timer);
+    }
   }
 
   onRecoverableError = (
@@ -108,6 +123,7 @@ export class InspectorController {
   }
 
   stop(): void {
+    for (const timer of this.settlingTimers.splice(0)) clearTimeout(timer);
     for (const cleanup of this.cleanups.splice(0)) cleanup();
     this.started = false;
   }
@@ -135,9 +151,15 @@ export class InspectorController {
       const root = document.querySelector(selector);
       if (!root || seen.has(root)) continue;
       seen.add(root);
-      inspectRoot(root, this.collector, this.pendingContext);
+      inspectRoot(root, this.collector, this.pendingContext, (divergence) =>
+        resolveReactSource(divergence.element ?? null),
+      );
     }
 
+    // Message fallback for mismatches the DOM diff can't locate (no snapshot,
+    // or invalid nesting the browser silently repaired). Double-reporting with
+    // a later precise DOM report is prevented by value-based dedup in the
+    // collector (same server/client values collapse regardless of path).
     if (
       this.collector.getReports().length === 0 &&
       this.pendingContext.reactMessage &&

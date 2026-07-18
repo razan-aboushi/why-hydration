@@ -1,9 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import {
+  extractComponentFromMessage,
   formatConsoleArgs,
   isHydrationMessage,
   parseHydrationMessage,
 } from '../src/core/react-message';
+
+// The exact modern React 18.3+/19 hydration diff format (from a real Next app).
+const MODERN_MESSAGE = `A tree hydrated but some attributes of the server rendered HTML didn't match the client properties. This won't be patched up.
+
+  ...
+    <ClientPageRoot Component={function Page}>
+      <Page params={Promise} searchParams={Promise}>
+        <main style={{padding:40}}>
+          <p>
+            <PriceTag>
+              <span
++               className="radius-8 border ripple p-8 noWrap pointer blueColor forceHide"
+-               className="radius-8 border ripple p-8 noWrap pointer blueColor"
+              >
++               1,400 KWD
+  ...`;
 
 describe('react-message', () => {
   it('reconstructs printf-style console args', () => {
@@ -49,5 +66,23 @@ describe('react-message', () => {
 
   it('returns null for non-hydration messages', () => {
     expect(parseHydrationMessage('Warning: something else')).toBeNull();
+  });
+
+  describe('modern React 18.3+/19 diff format', () => {
+    it('is recognized as a hydration message', () => {
+      expect(isHydrationMessage(MODERN_MESSAGE)).toBe(true);
+    });
+
+    it('parses the changed attribute + both values from the diff', () => {
+      const d = parseHydrationMessage(MODERN_MESSAGE);
+      expect(d?.kind).toBe('attribute');
+      expect(d?.attribute).toBe('className');
+      expect(d?.client).toContain('forceHide');
+      expect(d?.server).not.toContain('forceHide');
+    });
+
+    it('extracts the nearest user component, skipping Next internals', () => {
+      expect(extractComponentFromMessage(MODERN_MESSAGE)).toBe('PriceTag');
+    });
   });
 });

@@ -47,13 +47,57 @@ export function hasLatinDigits(value: string): boolean {
   return LATIN_DIGITS.test(value);
 }
 
+// A value made only of digits, separators and an optional sign \u2014 i.e. it
+// actually looks like a formatted number. Guards against class lists, ids, and
+// arbitrary text that merely contain digits (e.g. "radius-8 border p-8").
+const NUMERIC_LIKE = /^[+-]?[\d.,\s\u00a0\u2009]+$/;
+
 export function isSameNumberDifferentSeparators(a: string, b: string): boolean {
-  const digitsOnly = (s: string) => s.replace(/[^\d]/g, '');
-  const da = digitsOnly(a);
-  const db = digitsOnly(b);
+  const at = a.trim();
+  const bt = b.trim();
+  if (!NUMERIC_LIKE.test(at) || !NUMERIC_LIKE.test(bt)) return false;
+  const digitsOnly = (s: string) => s.replace(/\D/g, '');
+  const da = digitsOnly(at);
+  const db = digitsOnly(bt);
   if (!da || da !== db) return false;
-  const hasSep = (s: string) => /[.,\s\u00a0\u2009]/.test(s.trim());
-  return (hasSep(a) || hasSep(b)) && a.trim() !== b.trim();
+  const hasSep = (s: string) => /[.,\s\u00a0\u2009]/.test(s);
+  return (hasSep(at) || hasSep(bt)) && at !== bt;
+}
+
+// Attributes whose value is human-facing content that can carry locale/date/
+// random formatting. Structural attributes (class, style, id, href\u2026) are not.
+const CONTENT_ATTRIBUTES = new Set<string>([
+  'value',
+  'placeholder',
+  'title',
+  'alt',
+  'label',
+  'aria-label',
+  'aria-valuetext',
+  'content',
+  'datetime',
+]);
+
+export function isContentAttribute(name: string): boolean {
+  return CONTENT_ATTRIBUTES.has(name.toLowerCase());
+}
+
+// Markers of third-party scripts / consent / analytics / chat widgets that
+// inject nodes after the server render (not part of the app's hydration).
+const THIRD_PARTY_MARKERS =
+  /googlefc|adsbygoogle|google_ads|googletag|__tcfapi|onetrust|optanon|cookiebot|usercentrics|iubenda|didomi|quantcast|grammarly|data-gramm|gtm-|_hjsettings|hotjar|fullstory|intercom|drift|zendesk|livechat|tawk|hubspot|turnstile|recaptcha/i;
+
+// True when a *node-added / node-removed* divergence is almost certainly a
+// third-party injection rather than the developer's own hydration mismatch.
+export function looksLikeThirdPartyNode(
+  html: string | null,
+  tagName: string | undefined,
+): boolean {
+  const tag = (tagName ?? '').toUpperCase();
+  if (tag === 'IFRAME' || tag === 'EMBED' || tag === 'OBJECT') return true;
+  const h = (html ?? '').toLowerCase();
+  if (!h) return false;
+  return THIRD_PARTY_MARKERS.test(h) || h.includes('about:blank');
 }
 
 export function isSameDateDifferentOrder(a: string, b: string): boolean {

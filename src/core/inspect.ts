@@ -1,13 +1,17 @@
 import { diffSnapshotAgainstDom } from './diff';
-import { parseHydrationMessage } from './react-message';
+import {
+  extractComponentFromMessage,
+  parseHydrationMessage,
+} from './react-message';
 import { getServerHtmlForRoot } from './snapshot';
-import type { DetectionContext } from './types';
+import type { DetectionContext, Divergence } from './types';
 import type { ReportCollector } from './report';
 
 export function inspectRoot(
   root: Element,
   collector: ReportCollector,
   context: DetectionContext = {},
+  enrich?: (divergence: Divergence) => DetectionContext,
 ): boolean {
   const serverHtml = getServerHtmlForRoot(root);
   if (serverHtml == null) return false;
@@ -16,7 +20,8 @@ export function inspectRoot(
   if (context.reactMessage && !divergence.reactMessage) {
     divergence.reactMessage = context.reactMessage;
   }
-  return collector.report(divergence, context) != null;
+  const enriched = enrich ? enrich(divergence) : {};
+  return collector.report(divergence, { ...context, ...enriched }) != null;
 }
 
 export function reportFromMessage(
@@ -29,6 +34,7 @@ export function reportFromMessage(
   return (
     collector.report(divergence, {
       ...context,
+      component: extractComponentFromMessage(message) ?? context.component,
       reactMessage: message,
     }) != null
   );

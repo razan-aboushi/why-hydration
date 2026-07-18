@@ -9,8 +9,13 @@
 
 **Tells you which component broke hydration, what differed, and how to fix it — in dev, with zero production cost.**
 
+A **React hydration error / hydration mismatch debugger** for **Next.js** (App
+Router & Pages Router), **Remix**, **Vite**, and any React SSR app. It points at
+the exact **component, file, and value** behind "Hydration failed because the
+server rendered HTML didn't match the client" — and tells you how to fix it.
+
 <p align="center">
-  <img src="docs/screenshots/overlay-hero.png" alt="why-hydration overlay showing three classified hydration mismatches" width="440">
+  <img src="docs/screenshots/overlay-hero.png" alt="why-hydration overlay showing classified React hydration mismatches in a Next.js app with component names" width="440">
 </p>
 
 React's hydration warnings tell you _that_ something mismatched, rarely _which
@@ -28,10 +33,13 @@ the client DOM, classifies the root cause, and hands you a specific fix.
                         or format the value after mount.
 ```
 
-- 🔍 **Where** — component (best-effort) + exact DOM node + selector path.
+- 🔍 **Where** — the **component name** (e.g. `<PriceTag>`) and **source file:line**,
+  read from React's own fiber/diff, plus the exact DOM node + selector path.
 - 🔀 **What** — server value vs client value, side by side.
 - 🧠 **Why** — the cause, classified into a known category with a confidence score.
 - 🛠️ **Fix** — a specific, actionable suggestion with a docs link.
+- 🧹 **Low noise** — skips third-party/extension injections (ads, consent, chat,
+  Grammarly) so you see _your_ bug, not their DOM.
 - 🫧 **Zero prod cost** — everything is gated on `process.env.NODE_ENV` and
   tree-shakes to a **no-op** (~0 B, size-budgeted in CI).
 - 🌐 **Arabic-first** — digit-script mismatches (٠١٢ vs 012) are a first-class cause.
@@ -153,6 +161,25 @@ When a mismatch happens in dev, you get three things (all off in production):
 3. **Your `onReport` callback** (if provided) — the structured `HydrationReport`.
 
 A clean page with no mismatches shows **nothing** — no overlay, no logs.
+
+---
+
+## When it detects (full load vs client navigation)
+
+Hydration mismatches happen **only during the initial server render + hydration**
+— i.e. a **full page load, refresh, or direct URL entry** to an SSR'd route.
+`why-hydration` detects those.
+
+**Client-side navigation** (Next.js `<Link>` / `router.push`, React Router) does
+**not** re-hydrate — the destination is rendered entirely on the client, so there
+is no server HTML to diverge from and **no hydration mismatch can occur**. This is
+React's design, not a limitation. To reproduce a mismatch on a specific route,
+**refresh that route** (or open its URL directly).
+
+Detection covers both React's console warning path and a real server-vs-client
+DOM diff, and re-checks across a short settling window (React applies client
+values to mismatched subtrees a few hundred ms after hydration), so time- and
+render-order-dependent mismatches are caught reliably.
 
 ---
 
@@ -310,6 +337,19 @@ early third-party script before hydration.
 **Fix:** usually harmless — add `suppressHydrationWarning` to the leaf, or defer
 third-party init to post-hydration.
 **Reference:** [React `suppressHydrationWarning`](https://react.dev/reference/react-dom/components/common#suppressing-unavoidable-hydration-mismatch-errors).
+
+<a id="cause-attribute-mismatch"></a>
+
+### attribute-mismatch
+
+A `class`, `style`, or other attribute differs between server and client — the
+report lists the exact tokens (e.g. _added on client: `forceHide`_). Usually a
+class/style applied by a client-only conditional (viewport, media query, theme,
+or feature flag) during the first render. React does **not** patch mismatched
+attributes, so `why-hydration` reads these from React's own diff.
+**Fix:** render the same attribute on the server and the first client paint —
+move the condition into `useEffect`/a mounted flag, or use CSS media queries.
+**Reference:** [React — different client/server content](https://react.dev/reference/react-dom/client/hydrateRoot#handling-different-client-and-server-content).
 
 <a id="cause-unknown"></a>
 

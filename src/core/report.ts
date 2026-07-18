@@ -46,10 +46,13 @@ export function buildReport(
   };
 }
 
+// Deduplicate by the *values* of the mismatch, not the DOM path. The same
+// mismatch is often reported twice — once from React's console message (path
+// `body`) and once from the DOM diff (a precise selector path) — and those must
+// collapse into one report.
 export function signatureOf(report: HydrationReport): string {
   return [
     report.node.kind,
-    report.node.path,
     report.node.attribute ?? '',
     report.cause.category,
     report.server ?? '',
