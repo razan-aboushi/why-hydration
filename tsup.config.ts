@@ -25,4 +25,6 @@ export default defineConfig({
   esbuildOptions(options) {
     options.legalComments = 'none';
   },
+  // Re-add the `'use client'` directive stripped by esbuild during bundling.
+  onSuccess: 'node scripts/postbuild-use-client.mjs',
 });

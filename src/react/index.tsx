@@ -1,3 +1,6 @@
+// NOTE: the `'use client'` directive for this entry is injected into the built
+// output by scripts/postbuild-use-client.mjs (esbuild strips source-level module
+// directives when bundling). This entry only exports client components.
 import * as React from 'react';
 import { InspectorController, type InspectorOptions } from './controller';
 import { InspectorImpl, type HydrationInspectorProps } from './inspector';

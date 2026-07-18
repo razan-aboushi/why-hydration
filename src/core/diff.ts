@@ -172,14 +172,39 @@ function normalizeAttr(name: string, value: string | null): string | null {
     return value.trim().split(/\s+/).filter(Boolean).sort().join(' ');
   }
   if (name === 'style') {
-    return value
-      .split(';')
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .sort()
-      .join(';');
+    return normalizeStyle(value);
   }
   return value;
+}
+
+/**
+ * Canonicalize an inline style string so the server snapshot (React's raw
+ * serialization, e.g. `color:#0f172a`) compares equal to the live DOM value the
+ * browser has normalized via CSSOM (e.g. `color: rgb(15, 23, 42);`). We round
+ * each declaration through a throwaway element's CSSOM, then sort so property
+ * order doesn't matter either.
+ */
+function normalizeStyle(value: string): string {
+  if (typeof document !== 'undefined') {
+    try {
+      const el = document.createElement('div');
+      el.style.cssText = value;
+      const decls: string[] = [];
+      for (let i = 0; i < el.style.length; i++) {
+        const prop = el.style.item(i);
+        decls.push(`${prop}:${el.style.getPropertyValue(prop)}`);
+      }
+      return decls.sort().join(';');
+    } catch {
+      /* fall through to string normalization */
+    }
+  }
+  return value
+    .split(';')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .sort()
+    .join(';');
 }
 
 const NOISE_TAGS = new Set<string>([
@@ -206,6 +231,10 @@ function meaningfulChildNodes(parent: Node): Node[] {
   );
   return children.filter((node) => {
     if (isNoiseElement(node)) return false;
+    // Comment nodes are framework markers (React `<!--$-->` / `<!--/$-->`
+    // Suspense boundaries, RSC payload markers), never the user's real
+    // mismatch. Skipping them symmetrically avoids false positives.
+    if (node.nodeType === Node.COMMENT_NODE) return false;
     if (node.nodeType !== Node.TEXT_NODE) return true;
     const text = node.textContent ?? '';
     if (text.trim() !== '') return true;

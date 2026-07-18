@@ -49,6 +49,39 @@ describe('diff engine', () => {
     ).toBeNull();
   });
 
+  // Regression: the browser CSSOM-normalizes inline styles (spacing, `#hex` →
+  // `rgb()`), so the server snapshot string and the live DOM string differ even
+  // for identical styles. Found in a real Next.js app.
+  it('ignores browser CSSOM style normalization (whitespace/order)', () => {
+    expect(
+      diffSnapshotAgainstDom(
+        '<div style="color:red;padding:2px"></div>',
+        client('<div style="padding: 2px; color: red;"></div>'),
+      ),
+    ).toBeNull();
+  });
+
+  // Regression: React/Next emit comment markers (`<!--$-->`, `<!--/$-->`, RSC
+  // payload) that must never be treated as a mismatch. Found in a real Next app.
+  it('skips framework comment markers', () => {
+    expect(
+      diffSnapshotAgainstDom(
+        '<!--$--><span>a</span><!--/$-->',
+        client('<span>a</span>'),
+      ),
+    ).toBeNull();
+  });
+
+  it('finds the real text mismatch past a comment marker', () => {
+    const d = diffSnapshotAgainstDom(
+      '<!--$--><span>١٢٣٤</span>',
+      client('<span>1234</span>'),
+    );
+    expect(d?.kind).toBe('text');
+    expect(d?.server).toBe('١٢٣٤');
+    expect(d?.client).toBe('1234');
+  });
+
   it('detects a node added on the client', () => {
     const d = diffSnapshotAgainstDom('<ul></ul>', client('<ul><li>1</li></ul>'));
     expect(d!.kind).toBe('node-added');

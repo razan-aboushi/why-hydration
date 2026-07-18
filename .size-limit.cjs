@@ -21,7 +21,7 @@ module.exports = [
   {
     name: 'next adapters (prod no-op)',
     path: 'dist/next/index.js',
-    import: '{ HydrationInspector, HydrationSnapshotScript }',
+    import: '{ HydrationInspector, createHydrationInspector }',
     limit: '600 B',
     gzip: true,
   },
