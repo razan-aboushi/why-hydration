@@ -1,5 +1,12 @@
 # why-hydration
 
+[![npm version](https://img.shields.io/npm/v/why-hydration.svg)](https://www.npmjs.com/package/why-hydration)
+[![npm downloads](https://img.shields.io/npm/dm/why-hydration.svg)](https://www.npmjs.com/package/why-hydration)
+[![minzipped size](https://img.shields.io/bundlephobia/minzip/why-hydration.svg)](https://bundlephobia.com/package/why-hydration)
+[![license: MIT](https://img.shields.io/npm/l/why-hydration.svg)](LICENSE)
+
+📦 **npm:** https://www.npmjs.com/package/why-hydration
+
 **Tells you which component broke hydration, what differed, and how to fix it — in dev, with zero production cost.**
 
 <p align="center">

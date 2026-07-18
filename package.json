@@ -1,6 +1,6 @@
 {
   "name": "why-hydration",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Tells you which component broke hydration, what differed, and how to fix it — in dev, with zero production cost.",
   "license": "MIT",
   "author": "Razan Aboushi (https://github.com/razan-aboushi)",
@@ -75,9 +75,15 @@
   "types": "./dist/index.d.ts",
   "typesVersions": {
     "*": {
-      "react": ["./dist/react.d.ts"],
-      "next": ["./dist/next/index.d.ts"],
-      "next/script": ["./dist/next/script.d.ts"]
+      "react": [
+        "./dist/react.d.ts"
+      ],
+      "next": [
+        "./dist/next/index.d.ts"
+      ],
+      "next/script": [
+        "./dist/next/script.d.ts"
+      ]
     }
   },
   "files": [
