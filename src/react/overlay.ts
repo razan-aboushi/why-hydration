@@ -219,7 +219,6 @@ export function createOverlay(options: OverlayOptions = {}): OverlayHandle {
   let countEl: HTMLElement | null = null;
   let hintEl: HTMLElement | null = null;
   let hintTextEl: HTMLElement | null = null;
-  let hintTimer: ReturnType<typeof setTimeout> | null = null;
   let hintCheckTimer: ReturnType<typeof setTimeout> | null = null;
   let hintDismissed = false;
   let count = 0;
@@ -262,13 +261,6 @@ export function createOverlay(options: OverlayOptions = {}): OverlayHandle {
     hintX.setAttribute('aria-label', 'Dismiss hint');
     hintX.addEventListener('click', () => dismissHint());
     hintEl.appendChild(hintX);
-    // Hide the hint once the user has scrolled to the bottom (found the rest).
-    listEl.addEventListener('scroll', () => {
-      if (!listEl || !hintEl) return;
-      const atBottom =
-        listEl.scrollTop + listEl.clientHeight >= listEl.scrollHeight - 8;
-      if (atBottom) hintEl.classList.remove('wh-show');
-    });
     panel.appendChild(hintEl);
 
     shadow.appendChild(panel);
@@ -282,31 +274,21 @@ export function createOverlay(options: OverlayOptions = {}): OverlayHandle {
   function dismissHint(): void {
     hintDismissed = true;
     hintEl?.classList.remove('wh-show');
-    if (hintTimer) {
-      clearTimeout(hintTimer);
-      hintTimer = null;
-    }
   }
 
-  // Show a "more below" hint when the list overflows, auto-hiding after 5s.
-  // Only ever ADDS the class — hiding is owned by the timer / scroll / close —
-  // so a transient un-settled layout measurement can't flicker it off.
+  // Show a persistent "scroll for more" hint once there are enough issues that
+  // the panel is guaranteed to overflow (cards are ~150px+, panel caps at
+  // ~640px, so 4+ always scroll). Count-based — no async layout measurement,
+  // no timers — and only ever ADDS the class. It's removed only by its own ✕
+  // button (dismissHint), which satisfies the "close button" requirement.
   function updateHint(): void {
-    if (!listEl || !hintEl || !hintTextEl || hintDismissed) return;
-    const overflowing = listEl.scrollHeight - listEl.clientHeight > 8;
-    const atBottom =
-      listEl.scrollTop + listEl.clientHeight >= listEl.scrollHeight - 8;
-    if (!overflowing || atBottom || hintEl.classList.contains('wh-show')) return;
-    hintTextEl.textContent = `↓ ${count} issues — scroll for more`;
-    hintEl.classList.add('wh-show');
-    if (hintTimer) clearTimeout(hintTimer);
-    hintTimer = setTimeout(() => hintEl?.classList.remove('wh-show'), 5000);
+    if (!hintEl || !hintTextEl || hintDismissed) return;
+    hintTextEl.textContent = `↓ ${count} issues — scroll to see all`;
+    if (count >= 4) hintEl.classList.add('wh-show');
   }
 
   function destroy(): void {
-    if (hintTimer) clearTimeout(hintTimer);
     if (hintCheckTimer) clearTimeout(hintCheckTimer);
-    hintTimer = null;
     hintCheckTimer = null;
     host?.remove();
     host = null;

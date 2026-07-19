@@ -13,8 +13,8 @@ Detection is now **deterministic** and reports **every** mismatch at once.
   refreshes**.
 - **Collect all mismatches.** The diff now returns every divergence on the page
   (deduped by value), so the overlay shows them together instead of one-per-
-  refresh. The panel scrolls with a "↓ N issues — scroll for more" hint that
-  auto-hides after 5s or on close/scroll.
+  refresh. The panel is scrollable and shows a "↓ N issues — scroll to see all"
+  hint (with a ✕ close button) when there are more than fit.
 - **Skip client-injected containers** — toasts, modals, portals, overlays,
   tooltips, consent banners, chat/analytics widgets (by class/role/`aria-live`)
   are never reported and never mask a real mismatch.
