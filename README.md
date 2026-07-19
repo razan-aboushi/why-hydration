@@ -161,6 +161,18 @@ When a mismatch happens in dev, you get three things (all off in production):
 
 A clean page with no mismatches shows **nothing** — no overlay, no logs.
 
+### In a real app
+
+Running on a production Next.js app — **every** mismatch collected together and
+deterministic across refreshes, each with its **component**, source **`file:line`**,
+and a scroll hint when there are more than fit:
+
+<p align="center">
+  <img src="docs/screenshots/real-serp-facets.png" alt="why-hydration overlay on a real Next.js app: a Facets attribute-mismatch (forceHide class) with source components/OSLink/index.tsx:25, a Browser-only API report, and a '25 issues — scroll to see all' hint" width="370">
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/real-gallery-bullets.png" alt="why-hydration overlay on a real Next.js app: an ImageGalleryBullets attribute-mismatch with styled-components class names and source Bullets/index.tsx:22, plus a Viewport branching report" width="370">
+</p>
+
 ---
 
 ## When it detects (full load vs client navigation)
