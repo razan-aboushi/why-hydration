@@ -23,7 +23,7 @@ same as GitHub Actions.
 src/
   core/                framework-agnostic engine (the `why-hydration` entry)
     snapshot.ts        pre-hydration server-DOM capture
-    diff.ts            server-vs-client tree diff → first Divergence
+    diff.ts            server-vs-client tree diff → every Divergence (LCS-aligned)
     classify/
       detectors.ts     pure predicates (isRandomLike, hasArabicIndicDigits, …)
       rules.ts         the ordered built-in classifier rules  ← add here

@@ -25,7 +25,16 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 const STYLES = `
-:host { all: initial; }
+:host {
+  all: initial;
+  /* The "all" shorthand deliberately excludes direction/unicode-bidi (CSS spec),
+     so a host page with <html dir="rtl"> would otherwise leak direction:rtl
+     into this shadow tree and flip flex/grid order + text alignment. Report
+     content is English, so the overlay always renders left-to-right,
+     independent of the host page's directionality. */
+  direction: ltr;
+  unicode-bidi: isolate;
+}
 * { box-sizing: border-box; }
 .wh-panel {
   position: fixed;
@@ -41,6 +50,8 @@ const STYLES = `
   border-radius: 12px;
   box-shadow: 0 12px 40px rgba(0,0,0,.5);
   overflow: hidden;
+  direction: ltr;
+  text-align: left;
 }
 .wh-bottom-right { bottom: 16px; right: 16px; }
 .wh-bottom-left  { bottom: 16px; left: 16px; }

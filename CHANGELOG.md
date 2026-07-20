@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.1.4
+
+- **License: restored MIT.** Re-added `LICENSE` (MIT) and set
+  `"license": "MIT"` in `package.json`; the file is included in the published
+  npm tarball.
+- **RTL support for the overlay.** Fixed a real bug: the CSS `all` shorthand
+  used to reset the overlay's Shadow DOM styles deliberately excludes
+  `direction`/`unicode-bidi` (per the CSS spec), so a host page with
+  `<html dir="rtl">` leaked `direction: rtl` into the overlay, flipping its
+  flex/grid layout and text alignment (verified against a real browser). The
+  overlay now explicitly forces `direction: ltr` on its shadow host and panel,
+  so it always renders left-to-right — matching its English content —
+  regardless of the host page's directionality. No configuration needed.
+- **README rewritten** for technical accuracy and completeness: corrected the
+  cause-category priority order (`third-party-dom-mutation` runs before
+  `browser-only-api`/`viewport-branching`, not after), corrected the stale
+  "diffs once, first divergence" description of the detection pipeline to
+  match the current collect-all/settling-window/LCS-alignment behavior,
+  documented the full `createHydrationInspector`/`OverlayOptions`/
+  `HydrationSnapshotScript` API surface (including the previously-undocumented
+  `roots` option), added a "What is a hydration mismatch" primer, an RTL
+  section, and a table of contents.
+
 ## 0.1.3
 
 Stability + accuracy overhaul from running on a large production Next.js app.
