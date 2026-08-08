@@ -329,6 +329,27 @@ production):
 
 A page with no mismatches renders **nothing** — no overlay, no console output.
 
+### Controlling the overlay
+
+| Action | Effect |
+| ------ | ------ |
+| **Dismiss** button, or **Esc** | Removes the panel for the rest of the page load. |
+| **✕** on the hint bar | Closes just the "scroll to see all" hint; the panel stays. |
+| `overlay={false}` | Never mounts it at all — `onReport` and the console output still work. |
+| `overlay={{ position }}` | `bottom-right` (default), `bottom-left`, `top-right`, `top-left`. |
+
+The overlay is a *view* over the collected reports, not the collector itself:
+dismissing it does not stop detection, and `onReport` keeps firing. If a
+mismatch is found after you dismissed it — a late signal, or a second hydration
+error — the panel returns showing that mismatch, starting from a clean count
+rather than resuming a stale one.
+
+It renders in an isolated Shadow DOM, is never part of your app's tree, and is
+excluded from its own diff, so it can never be mistaken for a mismatch.
+Mismatched values are rendered as **text**, and "Learn more" links are
+restricted to `http(s)` URLs, so nothing in a mismatched value can inject markup
+or script into the panel.
+
 ### In a real app
 
 Captured from a production Next.js app: every mismatch on the page collected
