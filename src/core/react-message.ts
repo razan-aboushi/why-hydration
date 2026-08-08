@@ -221,6 +221,11 @@ export function parseHydrationMessage(message: string): Divergence | null {
 export function parseAllHydrationDivergences(message: string): Divergence[] {
   if (!isHydrationMessage(message)) return [];
 
+  const fallback = (): Divergence[] => {
+    const single = parseHydrationMessage(message);
+    return single ? [single] : [];
+  };
+
   const plus: string[] = [];
   const minus: string[] = [];
   for (const raw of message.split('\n')) {
@@ -230,38 +235,46 @@ export function parseAllHydrationDivergences(message: string): Divergence[] {
     if (p && p[1]) plus.push(p[1].trim());
     else if (mn && mn[1]) minus.push(mn[1].trim());
   }
-  if (plus.length === 0 && minus.length === 0) {
-    const single = parseHydrationMessage(message);
-    return single ? [single] : [];
-  }
+  if (plus.length === 0 && minus.length === 0) return fallback();
 
   const out: Divergence[] = [];
+  const attrPlus = plus.filter((p) => ATTR_RE.test(p));
   const attrMinus = minus.filter((m) => ATTR_RE.test(m));
   const usedMinus = new Set<number>();
 
-  for (const p of plus) {
-    const pm = ATTR_RE.exec(p);
-    if (!pm) continue;
-    const name = pm[1];
-    const clientValue = pm[2] ?? pm[3] ?? '';
-    const idx = attrMinus.findIndex((m, k) => {
-      if (usedMinus.has(k)) return false;
-      const parsed = ATTR_RE.exec(m);
-      return parsed?.[1] === name;
-    });
-    if (idx >= 0) {
-      usedMinus.add(idx);
-      const parsed = ATTR_RE.exec(attrMinus[idx]!);
-      out.push({
-        kind: 'attribute',
-        path: 'body',
-        attribute: name,
-        server: parsed ? (parsed[2] ?? parsed[3] ?? '') : '',
-        client: clientValue,
-        reactMessage: message,
-      });
-    }
+  const attribute = (
+    name: string,
+    server: string | null,
+    client: string | null,
+  ): Divergence => ({
+    kind: 'attribute',
+    path: 'body',
+    attribute: name,
+    server,
+    client,
+    reactMessage: message,
+  });
+
+  for (const line of attrPlus) {
+    const name = attrName(line);
+    if (!name) continue;
+    const idx = attrMinus.findIndex(
+      (m, k) => !usedMinus.has(k) && attrName(m) === name,
+    );
+    if (idx >= 0) usedMinus.add(idx);
+    // No `-` counterpart means the server never rendered the attribute at all.
+    const server = idx >= 0 ? attrValue(attrMinus[idx]!) : null;
+    out.push(attribute(name, server, attrValue(line)));
   }
+
+  // `-` lines left unpaired: the attribute exists only in the server HTML.
+  // Without this they would be dropped entirely — the text pass below filters
+  // attribute lines out, so nothing else would ever report them.
+  attrMinus.forEach((line, k) => {
+    if (usedMinus.has(k)) return;
+    const name = attrName(line);
+    if (name) out.push(attribute(name, attrValue(line), null));
+  });
 
   const textPlus = plus.filter((p) => !ATTR_RE.test(p));
   const textMinus = minus.filter((m) => !ATTR_RE.test(m));
@@ -270,9 +283,24 @@ export function parseAllHydrationDivergences(message: string): Divergence[] {
     const client = textPlus[i] ?? null;
     const server = textMinus[i] ?? null;
     if (client !== null || server !== null) {
-      out.push({ kind: 'text', path: 'body', server, client, reactMessage: message });
+      out.push({
+        kind: 'text',
+        path: 'body',
+        server,
+        client,
+        reactMessage: message,
+      });
     }
   }
 
-  return out.length ? out : (parseHydrationMessage(message) ? [parseHydrationMessage(message)!] : []);
+  return out.length ? out : fallback();
+}
+
+function attrName(line: string): string | undefined {
+  return ATTR_RE.exec(line)?.[1];
+}
+
+function attrValue(line: string): string {
+  const parsed = ATTR_RE.exec(line);
+  return parsed ? (parsed[2] ?? parsed[3] ?? '') : '';
 }

@@ -100,6 +100,45 @@ describe('classifier', () => {
     expect(classify(text('Apples', 'Oranges')).category).toBe('unknown');
   });
 
+  it('unknown: a structure divergence carrying no evidence', () => {
+    // A bare "Hydration failed" message parses to this. Guessing
+    // "viewport-branching" from it invents a cause out of nothing.
+    expect(
+      classify({ ...base, kind: 'structure', server: null, client: null })
+        .category,
+    ).toBe('unknown');
+  });
+
+  it('a client-only attribute is not blamed on a third party by default', () => {
+    // Message-derived divergences all carry `body` as a placeholder path, so
+    // the root-attribute heuristic must key off a resolved element instead.
+    expect(
+      classify({
+        ...base,
+        kind: 'attribute',
+        path: 'body',
+        attribute: 'data-total',
+        server: null,
+        client: '12',
+      }).category,
+    ).toBe('attribute-mismatch');
+  });
+
+  it('third-party-dom-mutation: unexpected attribute on <body> itself', () => {
+    const body = document.createElement('body');
+    expect(
+      classify({
+        ...base,
+        kind: 'attribute',
+        path: 'body',
+        attribute: 'cz-shortcut-listen-like',
+        server: null,
+        client: 'true',
+        element: body,
+      }).category,
+    ).toBe('third-party-dom-mutation');
+  });
+
   it('custom classifiers run before built-ins', () => {
     const custom: Classifier = (d) =>
       d.client === 'Oranges'

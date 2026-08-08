@@ -177,6 +177,10 @@ const viewportBranching: Classifier = (d) => {
   ) {
     return null;
   }
+  // A bare "hydration failed" message parses to a structure divergence with no
+  // values and no tags. There is nothing there to attribute to a viewport
+  // branch, so leave it unknown rather than inventing a 60%-confident cause.
+  if (d.server == null && d.client == null && !d.tagName) return null;
   return {
     category: 'viewport-branching',
     confidence: 0.6,
@@ -248,7 +252,13 @@ const thirdPartyDomMutation: Classifier = (d) => {
         docsUrl: docs('third-party-dom-mutation'),
       };
     }
-    const atRoot = /^(html|body)\b/.test(d.path) && d.server == null;
+    // Only when the diff actually resolved the <html>/<body> element. A
+    // divergence parsed from a React message carries `body` as a placeholder
+    // path, not a real location, so it must not be pinned to the root — every
+    // client-only attribute anywhere on the page would look third-party.
+    const el = d.element;
+    const atRoot =
+      d.server == null && el != null && /^(?:HTML|BODY)$/.test(el.tagName);
     if (atRoot) {
       return {
         category: 'third-party-dom-mutation',
