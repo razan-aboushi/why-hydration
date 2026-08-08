@@ -8,6 +8,49 @@ const NANOID_RE = /^[A-Za-z0-9_-]{10,}$/;
 const ARABIC_INDIC_DIGITS = /[٠-٩۰-۹]/;
 const LATIN_DIGITS = /[0-9]/;
 
+/**
+ * Bidirectional control characters: LRM, RLM, ALM and the isolate family.
+ *
+ * `Intl` wraps numbers and date fields in these when formatting for an RTL
+ * locale, and *which* ones it emits differs between ICU versions — so Node and
+ * the browser routinely format the same date into strings that differ only by
+ * invisible marks. That is a genuine hydration mismatch whose diff is literally
+ * invisible, which is exactly the case a developer cannot debug by eye.
+ */
+const BIDI_CONTROLS = /[‎‏؜⁦-⁩]/g;
+
+export function stripBidiControls(value: string): string {
+  return value.replace(BIDI_CONTROLS, '');
+}
+
+/** True when two values render identically once the invisible marks are gone. */
+export function differsOnlyByBidiControls(a: string, b: string): boolean {
+  const sa = stripBidiControls(a);
+  const sb = stripBidiControls(b);
+  return a !== b && sa === sb && sa.trim() !== '';
+}
+
+/**
+ * Fold Arabic-Indic (٠-٩) and Extended/Persian (۰-۹) digits, plus the Arabic
+ * thousands (٬) and decimal (٫) separators, onto their Latin equivalents, and
+ * drop bidi controls.
+ *
+ * Every numeric/date/time shape test below is written in terms of `\d`, so
+ * without this an app that renders Arabic-Indic digits on *both* sides gets no
+ * classification at all — the script-mismatch rule only fires when the two
+ * sides use different scripts. Normalisation is the identity function on Latin
+ * input, so it leaves every existing LTR path byte-identical.
+ */
+export function normalizeNumerals(value: string): string {
+  return stripBidiControls(value).replace(/[٠-٩۰-۹٫٬]/g, (ch) => {
+    if (ch === '٫') return '.';
+    if (ch === '٬') return ',';
+    const code = ch.charCodeAt(0);
+    const zero = code >= 0x06f0 ? 0x06f0 : 0x0660;
+    return String(code - zero);
+  });
+}
+
 export function isRandomLike(value: string): boolean {
   const v = value.trim();
   if (!v) return false;
@@ -20,16 +63,46 @@ export function isRandomLike(value: string): boolean {
 }
 
 export function looksLikeTime(value: string): boolean {
-  return /\b\d{1,2}:\d{2}(?::\d{2})?(?:\s?[AaPp][Mm])?\b/.test(value.trim());
+  return /\b\d{1,2}:\d{2}(?::\d{2})?(?:\s?[AaPp][Mm])?\b/.test(
+    normalizeNumerals(value).trim(),
+  );
+}
+
+/**
+ * Structural date shapes.
+ *
+ * `Date.parse` cannot be used as a *detector*: V8 accepts almost anything.
+ * `Date.parse('100')` is the year 100, `Date.parse('server-0')` is the year
+ * 2000, and `Date.parse('item 5')` is a date in May. Trusting it meant ordinary
+ * text and ordinary numbers — a price, a stock count, an id like `row-3` — were
+ * diagnosed as "the clock moved between server and client render", which is
+ * more misleading than no diagnosis at all. So a value must look like a date
+ * *by shape* before `Date.parse` is consulted at all.
+ */
+const ISO_DATE = /^\d{4}-\d{1,2}(?:-\d{1,2})?(?:[T ]\d{1,2}:\d{2}(?::\d{2})?)?/;
+const NUMERIC_DATE = /^\d{1,4}[/.-]\d{1,2}[/.-]\d{1,4}$/;
+const TIME_OF_DAY = /^\d{1,2}:\d{2}(?::\d{2})?(?:\s?[AaPp]\.?[Mm]\.?)?$/;
+const MONTH_NAME =
+  /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i;
+
+function looksLikeDate(v: string): boolean {
+  return (
+    ISO_DATE.test(v) ||
+    NUMERIC_DATE.test(v) ||
+    TIME_OF_DAY.test(v) ||
+    (MONTH_NAME.test(v) && /\d/.test(v))
+  );
 }
 
 export function toTimestamp(value: string): number | null {
   const v = value.trim();
   if (!v) return null;
+  // Epoch seconds/millis are unambiguous and stay matched explicitly.
   if (/^\d{10,13}$/.test(v)) {
     const n = Number(v);
     return v.length === 10 ? n * 1000 : n;
   }
+  if (!looksLikeDate(v)) return null;
   const parsed = Date.parse(v);
   if (!Number.isNaN(parsed)) return parsed;
   if (looksLikeTime(v)) {
@@ -53,15 +126,18 @@ export function hasLatinDigits(value: string): boolean {
 const NUMERIC_LIKE = /^[+-]?[\d.,\s\u00a0\u2009]+$/;
 
 export function isSameNumberDifferentSeparators(a: string, b: string): boolean {
-  const at = a.trim();
-  const bt = b.trim();
+  const at = normalizeNumerals(a).trim();
+  const bt = normalizeNumerals(b).trim();
   if (!NUMERIC_LIKE.test(at) || !NUMERIC_LIKE.test(bt)) return false;
   const digitsOnly = (s: string) => s.replace(/\D/g, '');
   const da = digitsOnly(at);
   const db = digitsOnly(bt);
   if (!da || da !== db) return false;
   const hasSep = (s: string) => /[.,\s\u00a0\u2009]/.test(s);
-  return (hasSep(at) || hasSep(bt)) && at !== bt;
+  // The "actually different" test is on the RAW values: `\u0661\u0662\u0663\u0664\u066b\u0665\u0666` and
+  // `\u0661\u0662\u0663\u0664.\u0665\u0666` fold to the same string but are two different renderings of the
+  // same number, which is precisely the mismatch being classified.
+  return (hasSep(at) || hasSep(bt)) && a.trim() !== b.trim();
 }
 
 // Attributes whose value is human-facing content that can carry locale/date/
@@ -100,9 +176,11 @@ export function looksLikeThirdPartyNode(
   return THIRD_PARTY_MARKERS.test(h) || h.includes('about:blank');
 }
 
+const DATE_PARTS_RE = /^(\d{1,4})[/.-](\d{1,2})[/.-](\d{1,4})$/;
+
 export function isSameDateDifferentOrder(a: string, b: string): boolean {
-  const partsA = a.trim().match(/^(\d{1,4})[/.-](\d{1,2})[/.-](\d{1,4})$/);
-  const partsB = b.trim().match(/^(\d{1,4})[/.-](\d{1,2})[/.-](\d{1,4})$/);
+  const partsA = normalizeNumerals(a).trim().match(DATE_PARTS_RE);
+  const partsB = normalizeNumerals(b).trim().match(DATE_PARTS_RE);
   if (!partsA || !partsB) return false;
   const setA = [partsA[1], partsA[2], partsA[3]].sort().join('|');
   const setB = [partsB[1], partsB[2], partsB[3]].sort().join('|');

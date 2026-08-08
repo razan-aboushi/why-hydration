@@ -241,6 +241,11 @@ export function createOverlay(options: OverlayOptions = {}): OverlayHandle {
     host.id = CONTAINER_ID;
     host.setAttribute('data-why-hydration', 'overlay');
     host.setAttribute('aria-hidden', 'false');
+    // Belt and braces with the `:host { direction: ltr }` rule below: on an RTL
+    // host page a stylesheet targeting the host element from the outer document
+    // outranks `:host`, but the attribute still wins. Report content is
+    // English, so the overlay stays LTR whatever the page direction.
+    host.setAttribute('dir', 'ltr');
     const shadow = host.attachShadow({ mode: 'open' });
 
     const style = document.createElement('style');
@@ -298,6 +303,10 @@ export function createOverlay(options: OverlayOptions = {}): OverlayHandle {
     if (count >= 4) hintEl.classList.add('wh-show');
   }
 
+  // Tears the panel down to nothing — including the counters, which describe
+  // the cards in the list rather than the reports ever seen. `push` re-mounts
+  // an empty panel, so a stale count would have it claim "14 issues — scroll to
+  // see all" above a single card that does not scroll.
   function destroy(): void {
     if (hintCheckTimer) clearTimeout(hintCheckTimer);
     hintCheckTimer = null;
@@ -307,6 +316,8 @@ export function createOverlay(options: OverlayOptions = {}): OverlayHandle {
     countEl = null;
     hintEl = null;
     hintTextEl = null;
+    count = 0;
+    hintDismissed = false;
   }
 
   function push(report: HydrationReport): void {

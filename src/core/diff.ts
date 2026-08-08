@@ -2,8 +2,14 @@ import type { Divergence } from './types';
 
 const IGNORED_ATTRIBUTES = new Set<string>(['data-reactroot']);
 
+/**
+ * Parse captured server markup into a detached document, so re-materializing it
+ * for the diff never fetches the images, iframes or media it references.
+ * `rootTagName` preserves the HTML parsing context (e.g. rows in a `<tbody>`).
+ */
 export function parseServerHtml(html: string, rootTagName: string): Element {
-  const container = document.createElement(rootTagName || 'div');
+  const doc = document.implementation.createHTMLDocument('');
+  const container = doc.createElement(rootTagName || 'div');
   container.innerHTML = html;
   return container;
 }

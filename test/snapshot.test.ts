@@ -45,4 +45,54 @@ describe('snapshot', () => {
     captureSnapshotNow(['#root']);
     expect(getServerHtmlForRoot(root)).toBe('<b>x</b>');
   });
+
+  // The snapshot selectors are chosen on the server, the inspected roots on the
+  // client, so they can disagree. A root nested inside a captured one must
+  // still resolve instead of silently yielding no server HTML.
+  describe('roots nested inside a captured root', () => {
+    it('recovers the subtree by id', () => {
+      document.body.innerHTML =
+        '<header>h</header><div id="app"><b>x</b></div>';
+      captureSnapshotNow(['body']);
+      const app = document.getElementById('app')!;
+      expect(getServerHtmlForRoot(app)).toBe('<b>x</b>');
+    });
+
+    it('reads the server markup, not the mutated live DOM', () => {
+      document.body.innerHTML = '<div id="app"><b>server</b></div>';
+      captureSnapshotNow(['body']);
+      document.querySelector('#app b')!.textContent = 'client';
+      expect(getServerHtmlForRoot(document.getElementById('app')!)).toBe(
+        '<b>server</b>',
+      );
+    });
+
+    it('handles an id that needs CSS escaping', () => {
+      document.body.innerHTML = '<div id="app:main"><b>x</b></div>';
+      captureSnapshotNow(['body']);
+      expect(getServerHtmlForRoot(document.getElementById('app:main')!)).toBe(
+        '<b>x</b>',
+      );
+    });
+
+    it('returns undefined when the nested root has no id to match on', () => {
+      document.body.innerHTML = '<div class="app"><b>x</b></div>';
+      captureSnapshotNow(['body']);
+      expect(
+        getServerHtmlForRoot(document.querySelector('.app')!),
+      ).toBeUndefined();
+    });
+
+    it('returns undefined when no captured root contains it', () => {
+      document.body.innerHTML = '<div id="app"><b>x</b></div>';
+      (window as unknown as Record<string, unknown>)[SNAPSHOT_KEY] = {
+        version: 1,
+        capturedAt: Date.now(),
+        roots: { '#missing': '<b>x</b>' },
+      };
+      expect(
+        getServerHtmlForRoot(document.getElementById('app')!),
+      ).toBeUndefined();
+    });
+  });
 });

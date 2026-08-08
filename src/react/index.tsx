@@ -39,10 +39,17 @@ export function createHydrationInspector(
   const controller = new InspectorController(options);
   controller.start();
 
-  function Provider(props: {
-    children?: React.ReactNode;
-  }): React.ReactElement {
-    React.useEffect(() => () => controller.stop(), []);
+  function Provider(props: { children?: React.ReactNode }): React.ReactElement {
+    React.useEffect(() => {
+      // The controller is started eagerly above, because the console has to be
+      // intercepted before `hydrateRoot` runs. Strict Mode then plays this
+      // effect setup → cleanup → setup, so a Provider that only stopped on
+      // cleanup left the inspector dead for the rest of the session. `start()`
+      // is idempotent and the controller is restartable, so re-starting here
+      // yields exactly one live inspector either way.
+      controller.start();
+      return () => controller.stop();
+    }, []);
     return React.createElement(React.Fragment, null, props.children);
   }
 
