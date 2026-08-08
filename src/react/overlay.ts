@@ -241,6 +241,11 @@ export function createOverlay(options: OverlayOptions = {}): OverlayHandle {
     host.id = CONTAINER_ID;
     host.setAttribute('data-why-hydration', 'overlay');
     host.setAttribute('aria-hidden', 'false');
+    // Belt and braces with the `:host { direction: ltr }` rule below: on an RTL
+    // host page a stylesheet targeting the host element from the outer document
+    // outranks `:host`, but the attribute still wins. Report content is
+    // English, so the overlay stays LTR whatever the page direction.
+    host.setAttribute('dir', 'ltr');
     const shadow = host.attachShadow({ mode: 'open' });
 
     const style = document.createElement('style');
