@@ -1,6 +1,7 @@
 import * as React from 'react';
 import type { Classifier, HydrationReport } from '../core/types';
-import { InspectorController } from './controller';
+import { startCapture } from './capture';
+import { InspectorController, type InspectorOptions } from './controller';
 import type { OverlayOptions } from './overlay';
 
 export interface HydrationInspectorProps {
@@ -17,21 +18,23 @@ export function InspectorImpl(
 ): React.ReactElement {
   const { children, overlay, onReport, ignore, classify, maxReports } = props;
 
-  const controllerRef = React.useRef<InspectorController | null>(null);
-  if (controllerRef.current === null) {
-    controllerRef.current = new InspectorController({
-      overlay,
-      onReport,
-      ignore,
-      classify,
-      maxReports,
-    });
-    controllerRef.current.start();
-  }
+  // The one thing that cannot wait for an effect: React logs the mismatch while
+  // it hydrates the children below, and effects run after that. Capture is
+  // module-scoped and idempotent, so Strict Mode — which renders twice with
+  // fresh hook state — starts it once instead of leaving a stray interceptor.
+  startCapture();
+
+  const optionsRef = React.useRef<InspectorOptions>({});
+  optionsRef.current = { overlay, onReport, ignore, classify, maxReports };
 
   React.useEffect(() => {
-    const controller = controllerRef.current;
-    return () => controller?.stop();
+    // Everything stateful is owned by the effect so React controls its
+    // lifetime. Strict Mode's setup → cleanup → setup then yields one live
+    // controller, fully torn down and fully rebuilt, and the messages React
+    // already logged are replayed to it from the capture backlog.
+    const controller = new InspectorController(optionsRef.current);
+    controller.start();
+    return () => controller.stop();
   }, []);
 
   return React.createElement(React.Fragment, null, children);
