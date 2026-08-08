@@ -288,6 +288,14 @@ React/Next.js's own internal markup markers.
    misattribute every following sibling. This is a bounded check, not a
    standing `MutationObserver`, so legitimate DOM changes from your app's own
    state updates after this window are never mistaken for a hydration issue.
+
+   The passes are also bounded in cost. React logs its warnings in bursts, so
+   every signal that lands in the same frame is coalesced into **one** diff
+   rather than one diff each, and the captured server markup — re-materialising
+   it is a full HTML parse of your server render — is parsed **once per root**
+   and reused across every pass. Scheduling races an animation frame against a
+   50 ms timer, so a page that is hidden at load (where the browser suspends
+   `requestAnimationFrame` entirely) still gets inspected.
 4. **Classify.** Each divergence is passed through an ordered list of rules
    (see [Cause categories](#cause-categories)); the first rule whose
    confidence clears the threshold wins, otherwise the mismatch is reported as
@@ -337,21 +345,54 @@ there are more than fit:
 
 ## RTL and Arabic support
 
-The overlay works correctly in apps that render right-to-left, e.g. pages with
-`<html dir="rtl">` for Arabic, Hebrew, or other RTL locales:
+An Arabic app gets the same diagnosis quality as an English one. That covers
+both how the overlay renders and what the engine can actually detect.
 
-- The overlay's own layout **always renders left-to-right**. Its content —
-  file paths, DOM selectors, code values, category names — is English, so
-  keeping it LTR keeps it readable regardless of the host page's direction.
-- This is automatic. The overlay renders inside an isolated Shadow DOM and
-  explicitly sets its own `direction`, so it does not inherit `dir="rtl"`
-  from the host page and does not mirror its layout. No configuration is
-  needed.
-- **Detection itself is locale-agnostic.** The [`locale-format`](#cause-locale-format)
-  category specifically detects Arabic-Indic vs. Latin digit-script mismatches
-  (`٠١٢` vs `012`), which is a common real-world source of hydration
-  mismatches in Arabic-first apps that format numbers with `Intl` or
-  `toLocaleString` without pinning an explicit locale.
+### The overlay
+
+- The overlay's own layout **always renders left-to-right**, on any page. Its
+  content — file paths, DOM selectors, code values, category names — is
+  English, so keeping it LTR keeps it readable regardless of the host page's
+  direction.
+- This is automatic and needs no configuration. The overlay lives in an
+  isolated Shadow DOM, sets `direction: ltr` on both `:host` and the panel, and
+  carries a `dir="ltr"` attribute as well — belt and braces, because the CSS
+  `all` shorthand deliberately excludes `direction` (per spec), so
+  `:host { all: initial }` alone would still let `direction: rtl` leak in and
+  flip the server/client diff columns.
+- Values are rendered as **text**, so Arabic, Hebrew and mixed bidi content
+  display intact inside the LTR panel without reordering the surrounding
+  layout.
+
+### Detection
+
+Detection is direction-agnostic: every rule matches on the *shape* of a value,
+not its script. Three Arabic-specific cases are worth calling out, because the
+first is the one most people expect and the other two are the ones that
+actually bite:
+
+- **Different digit scripts.** Arabic-Indic `٠١٢` on one side, Latin `012` on
+  the other — the classic symptom of `Intl`/`toLocaleString` resolving to a
+  different locale on the server than in the browser. Reported as
+  [`locale-format`](#cause-locale-format) at 92% confidence.
+- **Same digit script, different formatting.** An Arabic-first app renders
+  Arabic-Indic digits on *both* sides, so there is no script difference to key
+  off — only a grouping separator (`١٬٤٠٠` vs `١٤٠٠`), a decimal separator
+  (`١٢٣٤٫٥٦` vs `١٢٣٤.٥٦`), a field order, or a time. These are folded to Latin
+  before the numeric/date shape tests run, so they are classified exactly like
+  their English equivalents instead of falling through to `unknown`. Persian /
+  Extended Arabic-Indic digits (`۰۱۲`) are handled the same way.
+- **Invisible bidi marks.** `Intl` wraps numbers and date fields in
+  bidirectional control characters (LRM, RLM, ALM, isolates) in RTL locales,
+  and *which* ones it emits differs between ICU versions — so Node and the
+  browser routinely format the same date into strings that are visually
+  identical and byte-different. This is the hardest hydration mismatch to debug
+  by eye, since the console diff looks like the same text twice. It is detected
+  and named explicitly.
+
+Both directions are covered by the test suite as a matched pair
+(`test/i18n.test.tsx`), plus overlay directionality in `test/direction.test.ts`,
+so English and Arabic behaviour cannot drift apart.
 
 ---
 
@@ -413,6 +454,13 @@ interface HydrationInspectorHandle {
   Provider: (props: { children?: React.ReactNode }) => React.ReactElement;
 }
 ```
+
+`Provider` owns the inspector's lifetime: it must actually be mounted, and
+unmounting it tears the inspector down (overlay removed, `console.error`
+handed back untouched). Mounting it again restarts detection cleanly rather
+than stacking a second overlay or a second console patch — which is what makes
+it safe under `<React.StrictMode>`, where React deliberately runs every mount
+effect setup → cleanup → setup.
 
 ### `OverlayOptions`
 
@@ -508,6 +556,14 @@ Server and client rendered different random-looking values (UUID, token, React
 
 Values are dates/times that differ by a small delta — the clock or timezone
 moved between server and client render.
+
+Matched on **shape**, not on whether `Date.parse` happens to accept the value:
+ISO dates, `D/M/YYYY`-style dates, clock times, month names with a number, and
+10–13 digit epoch timestamps. That distinction matters because `Date.parse` is
+extremely permissive — it reads `100` as the year 100 and `server-0` as the
+year 2000 — so an ordinary price, count, or id would otherwise be diagnosed as
+a clock drift.
+
 **Fix:** render time after mount, or pass one server timestamp down and pin
 the timezone when formatting.
 **Reference:** [React — different client/server content](https://react.dev/reference/react-dom/client/hydrateRoot#handling-different-client-and-server-content).
@@ -518,11 +574,21 @@ the timezone when formatting.
 
 <img src="docs/screenshots/cause-locale-format.png" alt="locale-format report" width="420">
 
-Same underlying value, different formatting: **Arabic-Indic ٠١٢ vs Latin 012**,
-decimal/thousand separators (`1,234.56` vs `1.234,56`), or date field order
-(MM/DD vs DD/MM).
+Same underlying value, different formatting. Covers:
+
+- **Different digit scripts** — Arabic-Indic `٠١٢` vs Latin `012`, or Persian
+  `۰۱۲` vs Latin.
+- **Different separators or field order** — `1,234.56` vs `1.234,56`,
+  `١٬٤٠٠` vs `١٤٠٠`, MM/DD vs DD/MM. Detected in Arabic-Indic and Persian
+  digits as well as Latin, so an app that renders the same digit script on both
+  sides is still diagnosed.
+- **Invisible bidirectional marks** — values that are identical on screen but
+  differ by LRM/RLM/ALM or isolate characters, which `Intl` adds around numbers
+  and dates in RTL locales and which different ICU versions (Node vs the
+  browser) emit differently.
+
 **Fix:** pass an explicit `locale` and timezone to `Intl` on both sides, or
-format after mount.
+format after mount. See also [RTL and Arabic support](#rtl-and-arabic-support).
 **Reference:** [MDN `Intl.NumberFormat`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl/NumberFormat).
 
 <a id="cause-third-party-dom-mutation"></a>
@@ -628,11 +694,21 @@ above. If you find a reliable signal for it, add a custom rule via the
   check, written so bundlers can statically fold it away. In a production
   build, `<HydrationInspector>` becomes a plain pass-through and
   `createHydrationInspector()` returns no-op functions.
+- Production is **opt-out**, not opt-in: the internal dev check treats an
+  explicit `NODE_ENV === 'production'` as production and everything else,
+  including a bundle where `process` was never defined at all, as development.
+  That matters because Vite, Rollup and esbuild substitute
+  `process.env.NODE_ENV` without shimming `process` itself — requiring
+  `process` to exist would silently disable the inspector for all of them. It
+  cannot leak dev code into a production bundle, because the entry-point gates
+  above have already been folded away by then.
 - This is enforced, not just claimed: the project's CI pipeline runs a size
   budget (`npm run size`) against a real production bundle built with webpack
   and terser — the same toolchain Next.js and CRA use for production — and
   fails the build if the tree-shaken output for any entry point isn't reduced
-  to a near-empty stub.
+  to a near-empty stub. Verified independently against Rollup, which is what
+  Vite uses for production builds: **99 B** under webpack, **166 B** under
+  Rollup, versus ~40 KB for the same entry built for development.
 - `<HydrationSnapshotScript>` also renders `null` outside development, so no
   snapshot script is emitted into your production HTML.
 
@@ -662,6 +738,16 @@ above. If you find a reliable signal for it, add a custom rule via the
 - **Bounded, not continuous.** Detection re-checks the DOM a handful of times
   in the ~1.5 seconds after hydration and then stops — there is no standing
   `MutationObserver` watching your app for the rest of its lifetime.
+- **Bounded in cost, too.** A burst of React warnings landing in one frame
+  triggers one diff pass, not one per warning. The captured server markup is
+  parsed once per root and reused across passes rather than re-parsed each
+  time. Retained warning text is capped, so an app erroring in a render loop
+  cannot grow the per-pass cost without limit, and reports are capped by
+  `maxReports` (default 25).
+- **Symmetrical teardown.** Unmounting the inspector restores `console.error`
+  to exactly the function it replaced, removes the overlay, and clears every
+  pending timer — so a remount (including React Strict Mode's deliberate
+  double-mount in dev) leaves one overlay and one console patch, not two.
 
 ---
 
@@ -673,11 +759,25 @@ Remix, or a custom SSR setup. Use `createHydrationInspector` where you own
 The core engine (`why-hydration`) is framework-agnostic.
 
 **Nothing shows up, but I know there's a mismatch.** Confirm `NODE_ENV` isn't
-`production`, that `<HydrationInspector>` (or its `Provider`) actually wraps
-the part of the tree that mismatches, and that the snapshot script is present
-in `<head>` and runs before your app's hydration script. Without the snapshot
-script, the tool still reports mismatches it can parse from React's own
-console warning, but loses the precise DOM-level diff.
+`production`, that `<HydrationInspector>` (or its `Provider`) is actually
+**mounted** and wraps the part of the tree that mismatches, and that the
+snapshot script is present in `<head>` and runs before your app's hydration
+script. Without the snapshot script, the tool still reports mismatches it can
+parse from React's own console warning, but loses the precise DOM-level diff.
+If you passed `roots`, check the console for a
+`[why-hydration] Skipping root:` warning — a root with no captured server HTML
+can never produce a DOM-level report, and it says so rather than failing
+silently.
+
+**Does it work under `<React.StrictMode>`?** Yes. Strict Mode runs every mount
+effect setup → cleanup → setup in development, which tears the inspector down
+and rebuilds it. You get one overlay, one console patch, and each mismatch
+reported once — the warnings React logged during the first pass are replayed
+to the rebuilt inspector rather than lost.
+
+**I loaded the page in a background tab and got nothing.** Fixed — browsers
+suspend `requestAnimationFrame` on hidden pages, so scheduling races a frame
+against a 50 ms timer and no longer depends on the page being painted.
 
 **The "Learn more →" link 404s.** The links point at this README on GitHub
 (`github.com/razan-aboushi/why-hydration#cause-…`). If you've forked the
@@ -701,7 +801,15 @@ right after hydration, then stops.
 
 **Does it work with `<html dir="rtl">`?** Yes — see
 [RTL and Arabic support](#rtl-and-arabic-support). The overlay stays
-left-to-right on purpose; this is not a bug.
+left-to-right on purpose; this is not a bug. Detection covers Arabic-script
+formatting mismatches on both sides, not just Arabic-vs-Latin.
+
+**My Arabic app shows two identical-looking values as a mismatch.** They differ
+by invisible bidirectional control characters — `Intl` adds LRM/RLM/isolate
+marks around numbers and dates in RTL locales, and Node's ICU and the browser's
+ICU do not always agree on which. The report names this explicitly under
+[`locale-format`](#cause-locale-format). Format the value in one place and pass
+the string down, or add `suppressHydrationWarning` if the marks are harmless.
 
 ---
 

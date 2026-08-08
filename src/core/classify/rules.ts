@@ -1,5 +1,6 @@
 import type { Cause, Classifier, Divergence } from '../types';
 import {
+  differsOnlyByBidiControls,
   hasArabicIndicDigits,
   hasLatinDigits,
   isContentAttribute,
@@ -93,6 +94,25 @@ const localeFormat: Classifier = (d) => {
   if (!bothDiffer(d)) return null;
   const { server, client } = d;
 
+  // Checked first: the two values look identical in the console and in the
+  // overlay, so nothing further down could explain the diff to the developer.
+  if (differsOnlyByBidiControls(server, client)) {
+    return {
+      category: 'locale-format',
+      confidence: 0.88,
+      explanation:
+        'The values differ only by invisible bidirectional control marks ' +
+        '(LRM/RLM/isolates). `Intl` adds these around numbers and dates in ' +
+        'RTL locales, and different ICU versions — Node vs the browser — ' +
+        'emit different ones for the same input.',
+      suggestion:
+        'Format the value in one place and pass the string down, or pin the ' +
+        'same locale and timezone on both sides. If the marks are harmless, ' +
+        'add `suppressHydrationWarning` to the element.',
+      docsUrl: docs('locale-format'),
+    };
+  }
+
   const scriptMismatch =
     (hasArabicIndicDigits(server) && hasLatinDigits(client)) ||
     (hasLatinDigits(server) && hasArabicIndicDigits(client));
@@ -177,6 +197,10 @@ const viewportBranching: Classifier = (d) => {
   ) {
     return null;
   }
+  // A bare "hydration failed" message parses to a structure divergence with no
+  // values and no tags. There is nothing there to attribute to a viewport
+  // branch, so leave it unknown rather than inventing a 60%-confident cause.
+  if (d.server == null && d.client == null && !d.tagName) return null;
   return {
     category: 'viewport-branching',
     confidence: 0.6,
@@ -248,7 +272,13 @@ const thirdPartyDomMutation: Classifier = (d) => {
         docsUrl: docs('third-party-dom-mutation'),
       };
     }
-    const atRoot = /^(html|body)\b/.test(d.path) && d.server == null;
+    // Only when the diff actually resolved the <html>/<body> element. A
+    // divergence parsed from a React message carries `body` as a placeholder
+    // path, not a real location, so it must not be pinned to the root — every
+    // client-only attribute anywhere on the page would look third-party.
+    const el = d.element;
+    const atRoot =
+      d.server == null && el != null && /^(?:HTML|BODY)$/.test(el.tagName);
     if (atRoot) {
       return {
         category: 'third-party-dom-mutation',

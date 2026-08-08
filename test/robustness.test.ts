@@ -8,6 +8,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { diffSnapshotAgainstDom } from '../src/core/diff';
 import { InspectorController } from '../src/react/controller';
+import { resetCapture } from '../src/react/capture';
 import { SNAPSHOT_KEY, type Snapshot } from '../src/core/snapshot';
 import type { HydrationReport } from '../src/core/types';
 
@@ -18,6 +19,7 @@ function client(html: string): Element {
 }
 
 afterEach(() => {
+  resetCapture();
   delete (window as unknown as Record<string, unknown>)[SNAPSHOT_KEY];
   document.body.innerHTML = '';
   document.getElementById('why-hydration-overlay')?.remove();
