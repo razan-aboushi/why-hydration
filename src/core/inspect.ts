@@ -9,6 +9,11 @@ import type { ReportCollector } from './report';
 
 // Diff the server snapshot against a live root and report EVERY divergence
 // (deduped by value in the collector). Returns how many new reports were made.
+//
+// A divergence found here is classified purely on its own shape. React's
+// console message describes ONE node, so copying it onto every node the diff
+// finds would let an unrelated warning (say a `validateDOMNesting` complaint
+// elsewhere on the page) drive their classification.
 export function inspectRoot(
   root: Element,
   collector: ReportCollector,
@@ -20,9 +25,6 @@ export function inspectRoot(
   const divergences = collectSnapshotAgainstDom(serverHtml, root);
   let reported = 0;
   for (const divergence of divergences) {
-    if (context.reactMessage && !divergence.reactMessage) {
-      divergence.reactMessage = context.reactMessage;
-    }
     const enriched = enrich ? enrich(divergence) : {};
     if (collector.report(divergence, { ...context, ...enriched }) != null) {
       reported += 1;
