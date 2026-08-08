@@ -60,20 +60,34 @@ export function extractComponentFromMessage(
 const ATTR_RE = /^([\w:-]+)=(?:"([\s\S]*)"|\{([\s\S]*)\})$/;
 
 /**
+ * A `+`/`-` line from React's JSX diff tree.
+ *
+ * The two-space gap is load-bearing. React 19's hydration warning opens with a
+ * prose list of likely causes, and every item starts with "- " — a single
+ * space. Accepting those as server-side diff lines turned React's own help text
+ * into five bogus "server rendered this" reports on every mismatch. Real diff
+ * lines pad the marker out to the tree's indentation, so the gap is never 1.
+ */
+const DIFF_LINE_RE = /^([+-])\s{2,}(\S.*)$/;
+
+function diffLines(message: string): { plus: string[]; minus: string[] } {
+  const plus: string[] = [];
+  const minus: string[] = [];
+  for (const raw of message.split('\n')) {
+    const match = DIFF_LINE_RE.exec(raw.trim());
+    if (!match) continue;
+    (match[1] === '+' ? plus : minus).push(match[2]!.trim());
+  }
+  return { plus, minus };
+}
+
+/**
  * Modern React (18.3+/19) prints hydration mismatches as a JSX diff tree with
  * `+` (client) and `-` (server) lines. This extracts the changed attribute or
  * text and both values.
  */
 function parseModernDiff(message: string): Divergence | null {
-  const plus: string[] = [];
-  const minus: string[] = [];
-  for (const raw of message.split('\n')) {
-    const line = raw.trim();
-    const p = /^\+\s+(.+)$/.exec(line);
-    const mn = /^-\s+(.+)$/.exec(line);
-    if (p && p[1]) plus.push(p[1].trim());
-    else if (mn && mn[1]) minus.push(mn[1].trim());
-  }
+  const { plus, minus } = diffLines(message);
   if (plus.length === 0 && minus.length === 0) return null;
 
   // Prefer a matching attribute pair (same attribute on + and -).
@@ -100,10 +114,11 @@ function parseModernDiff(message: string): Divergence | null {
     }
   }
 
-  // Otherwise a text/content change: pick the non-attribute lines.
+  // Otherwise a text change — but only when both sides are present. A lone `+`
+  // text line is React echoing unchanged content around a changed attribute.
   const client = plus.find((p) => !ATTR_RE.test(p)) ?? null;
   const server = minus.find((m) => !ATTR_RE.test(m)) ?? null;
-  if (client !== null || server !== null) {
+  if (client !== null && server !== null) {
     return {
       kind: 'text',
       path: 'body',
@@ -229,15 +244,7 @@ export function parseAllHydrationDivergences(message: string): Divergence[] {
     return single ? [single] : [];
   };
 
-  const plus: string[] = [];
-  const minus: string[] = [];
-  for (const raw of message.split('\n')) {
-    const line = raw.trim();
-    const p = /^\+\s+(.+)$/.exec(line);
-    const mn = /^-\s+(.+)$/.exec(line);
-    if (p && p[1]) plus.push(p[1].trim());
-    else if (mn && mn[1]) minus.push(mn[1].trim());
-  }
+  const { plus, minus } = diffLines(message);
   if (plus.length === 0 && minus.length === 0) return fallback();
 
   const out: Divergence[] = [];
@@ -279,21 +286,23 @@ export function parseAllHydrationDivergences(message: string): Divergence[] {
     if (name) out.push(attribute(name, attrValue(line), null));
   });
 
+  // Text needs both sides, unlike attributes. React prints the surrounding
+  // text of an element whose *attribute* changed as a `+` context line, with
+  // no `-` counterpart even though the server rendered exactly the same text.
+  // Taking that as "the server rendered nothing here" reported every React 19
+  // attribute mismatch as a browser-only API call too. A genuinely one-sided
+  // text node is the DOM diff's job, and it can see those precisely.
   const textPlus = plus.filter((p) => !ATTR_RE.test(p));
   const textMinus = minus.filter((m) => !ATTR_RE.test(m));
-  const len = Math.max(textPlus.length, textMinus.length);
-  for (let i = 0; i < len; i++) {
-    const client = textPlus[i] ?? null;
-    const server = textMinus[i] ?? null;
-    if (client !== null || server !== null) {
-      out.push({
-        kind: 'text',
-        path: 'body',
-        server,
-        client,
-        reactMessage: message,
-      });
-    }
+  const pairs = Math.min(textPlus.length, textMinus.length);
+  for (let i = 0; i < pairs; i++) {
+    out.push({
+      kind: 'text',
+      path: 'body',
+      server: textMinus[i]!,
+      client: textPlus[i]!,
+      reactMessage: message,
+    });
   }
 
   return out.length ? out : fallback();

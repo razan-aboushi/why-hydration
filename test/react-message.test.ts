@@ -141,12 +141,18 @@ describe('react-message', () => {
   // it. An attribute present on just one side gets a single line, which used to
   // be discarded: the pairing loop skipped it and the text pass filtered it out.
   describe('parseAllHydrationDivergences', () => {
+    // React pads the +/- marker out to the tree's indentation, so a real diff
+    // line always has several spaces after the marker. Reproduce that here:
+    // a single space is what React's prose bullet list uses, and the parser
+    // must be able to tell them apart.
     const tree = (lines: string): string =>
       [
         "A tree hydrated but some attributes of the server rendered HTML didn't match the client properties.",
         '',
         '  <span',
-        ...lines.split('\n').map((l) => `    ${l}`),
+        ...lines
+          .split('\n')
+          .map((l) => l.replace(/^([+-]) /, '$1   ').padStart(0)),
         '  >',
       ].join('\n');
 
@@ -196,6 +202,48 @@ describe('react-message', () => {
       ]);
     });
 
+    // Captured verbatim from react-dom 19 hydrating a className mismatch in
+    // jsdom. The prose bullet list is the trap: five lines starting with "- ".
+    const REACT_19_MESSAGE =
+      "A tree hydrated but some attributes of the server rendered HTML didn't match the client properties. This won't be patched up. This can happen if a SSR-ed Client Component used:\n" +
+      '\n' +
+      "- A server/client branch `if (typeof window !== 'undefined')`.\n" +
+      "- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.\n" +
+      "- Date formatting in a user's locale which doesn't match the server.\n" +
+      '- External changing data without sending a snapshot of it along with the HTML.\n' +
+      '- Invalid HTML tag nesting.\n' +
+      '\n' +
+      'It can also happen if the client has a browser extension installed which messes with the HTML before React loaded.\n' +
+      '\n' +
+      'https://react.dev/link/hydration-mismatch\n' +
+      '\n' +
+      '  <div\n' +
+      '+   className="price forceHide"\n' +
+      '-   className="price"\n' +
+      '  >\n' +
+      '+   10';
+
+    it('does not mistake React 19 help bullets for server values', () => {
+      const found = parseAllHydrationDivergences(REACT_19_MESSAGE);
+      const servers = found.map((d) => d.server ?? '');
+      expect(servers.join(' ')).not.toContain('Invalid HTML tag nesting');
+      expect(servers.join(' ')).not.toContain('Date formatting');
+      expect(servers.join(' ')).not.toContain('server/client branch');
+    });
+
+    it('extracts only the real change from a React 19 message', () => {
+      // The trailing "+   10" is the element's unchanged text, echoed as
+      // context for the attribute that did change. The server rendered it too.
+      const found = parseAllHydrationDivergences(REACT_19_MESSAGE);
+      expect(found).toHaveLength(1);
+      expect(found[0]).toMatchObject({
+        kind: 'attribute',
+        attribute: 'className',
+        server: 'price',
+        client: 'price forceHide',
+      });
+    });
+
     it('parses React 18 output verbatim, component stack and all', () => {
       // Captured from a real hydrateRoot in jsdom. React always appends the
       // stack after the values; anchoring the value regexes to end-of-string
@@ -211,12 +259,31 @@ describe('react-message', () => {
       });
     });
 
-    it('still extracts the attribute and text change from a real message', () => {
+    it('still extracts the attribute change from a real message', () => {
       const found = parseAllHydrationDivergences(MODERN_MESSAGE);
       const attr = found.find((d) => d.attribute === 'className');
       expect(attr?.client).toContain('forceHide');
       expect(attr?.server).not.toContain('forceHide');
-      expect(found.find((d) => d.kind === 'text')?.client).toBe('1,400 KWD');
+    });
+
+    it('does not report the price text that never changed', () => {
+      // "+ 1,400 KWD" is context for the className change on the <span>
+      // wrapping it. Reading it as "the server rendered nothing" reported a
+      // browser-only API call on top of every real attribute mismatch.
+      const found = parseAllHydrationDivergences(MODERN_MESSAGE);
+      expect(found.filter((d) => d.kind === 'text')).toEqual([]);
+    });
+
+    it('still reports a genuine text change, which has both sides', () => {
+      const found = parseAllHydrationDivergences(
+        tree('- 10:00 AM\n+ 10:01 AM'),
+      );
+      expect(found).toHaveLength(1);
+      expect(found[0]).toMatchObject({
+        kind: 'text',
+        server: '10:00 AM',
+        client: '10:01 AM',
+      });
     });
   });
 });
