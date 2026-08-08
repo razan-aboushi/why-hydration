@@ -8,6 +8,8 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { InspectorController } from '../src/react/controller';
+import { ReportCollector } from '../src/core/report';
+import { reportFromMessage } from '../src/core/inspect';
 import { resetCapture } from '../src/react/capture';
 import {
   SNAPSHOT_KEY,
@@ -117,6 +119,45 @@ describe('report attribution', () => {
     expect(onReport.mock.calls[0]![0].component).toBe('Alpha');
     expect(onReport.mock.calls[0]![0].location?.file).toBe('/src/Alpha.tsx');
     controller.stop();
+  });
+});
+
+describe('evidence-free messages', () => {
+  // React emits several follow-ups per mismatch that describe the consequence
+  // rather than the divergence. They parse to a divergence with no values, no
+  // tag and no attribute, and used to render an empty "Unknown — (none)/(none)"
+  // card right next to the real diagnosis.
+  it.each([
+    'Warning: An error occurred during hydration. The server HTML was replaced with client content in <div>.',
+    'Error: Text content does not match server-rendered HTML.',
+    'Error: There was an error while hydrating. Because the error happened outside of a Suspense boundary, the entire root will switch to client rendering.',
+  ])('produces no report for %#', (message) => {
+    const collector = new ReportCollector();
+    expect(reportFromMessage(message, collector)).toBe(0);
+    expect(collector.getReports()).toHaveLength(0);
+  });
+
+  it('still reports a message that does carry values', () => {
+    const collector = new ReportCollector();
+    expect(
+      reportFromMessage(
+        'Warning: Text content did not match. Server: "A" Client: "B"\n    at span',
+        collector,
+      ),
+    ).toBe(1);
+  });
+
+  it('still reports invalid nesting, which has tags but no values', () => {
+    const collector = new ReportCollector();
+    expect(
+      reportFromMessage(
+        'Warning: validateDOMNesting(...): <div> cannot appear as a descendant of <p>.',
+        collector,
+      ),
+    ).toBe(1);
+    expect(collector.getReports()[0]!.cause.category).toBe(
+      'invalid-html-nesting',
+    );
   });
 });
 

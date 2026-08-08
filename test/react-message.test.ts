@@ -56,6 +56,56 @@ describe('react-message', () => {
     expect(d?.attribute).toBe('className');
   });
 
+  // Every message React actually emits ends with a component stack. Anchoring
+  // the value regexes to end-of-string meant none of them ever matched.
+  describe('real React 18 console output', () => {
+    it('parses a text mismatch followed by a component stack', () => {
+      const d = parseHydrationMessage(
+        'Warning: Text content did not match. Server: "AAA" Client: "BBB"\n    at span\n    at div',
+      );
+      expect(d?.kind).toBe('text');
+      expect(d?.server).toBe('AAA');
+      expect(d?.client).toBe('BBB');
+    });
+
+    it('parses a prop mismatch followed by a component stack', () => {
+      const d = parseHydrationMessage(
+        'Warning: Prop `className` did not match. Server: "price" Client: "price forceHide"\n    at div',
+      );
+      expect(d?.kind).toBe('attribute');
+      expect(d?.attribute).toBe('className');
+      expect(d?.server).toBe('price');
+      expect(d?.client).toBe('price forceHide');
+    });
+
+    it('reconstructs the printf form React passes to console.error', () => {
+      const message = formatConsoleArgs([
+        'Warning: Prop `%s` did not match. Server: %s Client: %s%s',
+        'className',
+        '"price"',
+        '"price forceHide"',
+        '\n    at div',
+      ]);
+      const d = parseHydrationMessage(message);
+      expect(d?.attribute).toBe('className');
+      expect(d?.server).toBe('price');
+      expect(d?.client).toBe('price forceHide');
+    });
+
+    // React emits these alongside the real warning; they describe the
+    // consequence, not the divergence, so there is nothing to parse out.
+    it.each([
+      'Warning: An error occurred during hydration. The server HTML was replaced with client content in <div>.',
+      'Error: Text content does not match server-rendered HTML.',
+      'Error: There was an error while hydrating. Because the error happened outside of a Suspense boundary, the entire root will switch to client rendering.',
+    ])('yields no values for the follow-up message %#', (message) => {
+      const d = parseHydrationMessage(message);
+      expect(d?.server).toBeNull();
+      expect(d?.client).toBeNull();
+      expect(d?.tagName).toBeUndefined();
+    });
+  });
+
   it('parses invalid nesting', () => {
     const d = parseHydrationMessage(
       'Warning: validateDOMNesting(...): <div> cannot appear as a descendant of <p>.',
@@ -144,6 +194,21 @@ describe('react-message', () => {
         'id',
         'title',
       ]);
+    });
+
+    it('parses React 18 output verbatim, component stack and all', () => {
+      // Captured from a real hydrateRoot in jsdom. React always appends the
+      // stack after the values; anchoring the value regexes to end-of-string
+      // meant no real message ever matched and both values were lost.
+      const found = parseAllHydrationDivergences(
+        'Warning: Text content did not match. Server: "AAA" Client: "BBB"\n    at span\n    at div',
+      );
+      expect(found).toHaveLength(1);
+      expect(found[0]).toMatchObject({
+        kind: 'text',
+        server: 'AAA',
+        client: 'BBB',
+      });
     });
 
     it('still extracts the attribute and text change from a real message', () => {

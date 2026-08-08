@@ -33,6 +33,24 @@ export function inspectRoot(
   return reported;
 }
 
+/**
+ * A message we could not resolve to anything concrete. React emits several
+ * follow-ups per mismatch ("An error occurred during hydration…", "the entire
+ * root will switch to client rendering") that describe the *consequence*, not
+ * the divergence, and they parse to a divergence with no values, no tag and no
+ * attribute. Reporting those renders an empty "Unknown — (none)/(none)" card
+ * next to the real diagnosis. React has already logged them itself; we have
+ * nothing to add.
+ */
+function hasEvidence(divergence: Divergence): boolean {
+  return (
+    divergence.server != null ||
+    divergence.client != null ||
+    divergence.tagName != null ||
+    divergence.attribute != null
+  );
+}
+
 // Report every divergence a React hydration message describes. Deduped by value
 // in the collector, so it's safe to call alongside the DOM diff and repeatedly.
 export function reportFromMessage(
@@ -44,6 +62,7 @@ export function reportFromMessage(
   const component = extractComponentFromMessage(message) ?? context.component;
   let reported = 0;
   for (const divergence of divergences) {
+    if (!hasEvidence(divergence)) continue;
     if (
       collector.report(divergence, { ...context, component, reactMessage: message }) !=
       null

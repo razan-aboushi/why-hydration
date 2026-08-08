@@ -143,9 +143,12 @@ export function parseHydrationMessage(message: string): Divergence | null {
   const modern = parseModernDiff(message);
   if (modern) return modern;
 
-  // Legacy explicit formats (React <18.3).
+  // Legacy explicit formats (React <18.3). These are anchored per *line*, not
+  // per string: React always appends the component stack ("\n    at span\n
+  // at div") after the values, and an end-of-string anchor never reaches past
+  // it, which silently dropped both values from every real message.
   const text =
-    /Text content (?:did not match|does not match)[^:]*Server:\s*"?(.*?)"?\s+Client:\s*"?(.*?)"?\s*$/i.exec(
+    /Text content (?:did not match|does not match)[^:]*Server:\s*"?(.*?)"?\s+Client:\s*"?(.*?)"?\s*$/im.exec(
       message,
     );
   if (text) {
@@ -159,7 +162,7 @@ export function parseHydrationMessage(message: string): Divergence | null {
   }
 
   const prop =
-    /Prop [`'"]([^`'"]+)[`'"] did not match\.?\s*Server:\s*"?(.*?)"?\s+Client:\s*"?(.*?)"?\s*$/i.exec(
+    /Prop [`'"]([^`'"]+)[`'"] did not match\.?\s*Server:\s*"?(.*?)"?\s+Client:\s*"?(.*?)"?\s*$/im.exec(
       message,
     );
   if (prop) {
