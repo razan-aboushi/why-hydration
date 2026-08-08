@@ -1,6 +1,10 @@
 import { inspectRoot, reportFromMessage } from '../core/inspect';
 import { ReportCollector } from '../core/report';
-import { DEFAULT_SNAPSHOT_SELECTORS, readSnapshot } from '../core/snapshot';
+import {
+  DEFAULT_SNAPSHOT_SELECTORS,
+  getServerHtmlForRoot,
+  readSnapshot,
+} from '../core/snapshot';
 import { isDev } from '../core/env';
 import type {
   Classifier,
@@ -8,7 +12,8 @@ import type {
   Divergence,
   HydrationReport,
 } from '../core/types';
-import { createConsoleReporter, installConsoleInterceptor } from './console';
+import { subscribeCapture } from './capture';
+import { createConsoleReporter } from './console';
 import { createOverlay, type OverlayOptions } from './overlay';
 import { resolveReactSource } from './fiber';
 
@@ -49,6 +54,7 @@ export class InspectorController {
   private started = false;
   private pendingContext: DetectionContext = {};
   private readonly messages = new Set<string>();
+  private readonly warnedRoots = new Set<string>();
   private settlingTimers: Array<ReturnType<typeof setTimeout>> = [];
 
   constructor(options: InspectorOptions = {}) {
@@ -60,30 +66,39 @@ export class InspectorController {
     });
   }
 
+  // Safe to call again after `stop()`: every sink and subscription goes through
+  // `cleanups`, so a restart re-attaches exactly one of each rather than
+  // stacking duplicates. Reports already collected survive the cycle, and the
+  // messages React logged during hydration are replayed from the shared
+  // capture, so a resumed controller sees the same evidence a fresh one would.
   start(): void {
     if (this.started || !isDev || typeof window === 'undefined') return;
     this.started = true;
-    this.pendingContext = {};
-    this.messages.clear();
 
     if (this.options.onReport) {
-      this.collector.addSink(this.options.onReport);
+      this.cleanups.push(this.collector.addSink(this.options.onReport));
     }
-    this.collector.addSink(createConsoleReporter());
+    this.cleanups.push(this.collector.addSink(createConsoleReporter()));
     if (this.options.overlay !== false) {
       const overlayOpts: OverlayOptions =
         typeof this.options.overlay === 'object' ? this.options.overlay : {};
       const handle = createOverlay(overlayOpts);
-      this.collector.addSink(handle.push);
-      this.cleanups.push(() => handle.destroy());
+      // Replay: a fresh overlay must show the reports collected before it.
+      this.cleanups.push(
+        this.collector.addSink(handle.push, { replay: true }),
+        () => handle.destroy(),
+      );
     }
 
-    const restore = installConsoleInterceptor((message) => {
-      this.messages.add(message);
-      this.mergeContext({ reactMessage: message });
-      this.scheduleInspect();
-    });
-    this.cleanups.push(restore);
+    // Replays whatever React logged before this controller existed, which is
+    // the normal case: the mismatch is reported while the tree hydrates.
+    this.cleanups.push(
+      subscribeCapture((message) => {
+        this.messages.add(message);
+        this.mergeContext({ reactMessage: message });
+        this.scheduleInspect();
+      }),
+    );
 
     this.scheduleSettlingInspections();
   }
@@ -116,19 +131,31 @@ export class InspectorController {
     this.scheduleInspect();
   };
 
+  // The newest signal wins per field, so a second hydration error is not
+  // ignored in favour of the first. Fields the new context omits are kept.
   private mergeContext(ctx: DetectionContext): void {
     this.pendingContext = {
-      componentStack: this.pendingContext.componentStack ?? ctx.componentStack,
-      component: this.pendingContext.component ?? ctx.component,
-      location: this.pendingContext.location ?? ctx.location,
-      reactMessage: this.pendingContext.reactMessage ?? ctx.reactMessage,
+      componentStack: ctx.componentStack ?? this.pendingContext.componentStack,
+      component: ctx.component ?? this.pendingContext.component,
+      location: ctx.location ?? this.pendingContext.location,
+      reactMessage: ctx.reactMessage ?? this.pendingContext.reactMessage,
+    };
+  }
+
+  // Context for reports the DOM diff produces. It carries the component and
+  // source hints but never `reactMessage`: that message describes one specific
+  // node, and attaching it to unrelated divergences would misattribute them.
+  private domContext(): DetectionContext {
+    return {
+      componentStack: this.pendingContext.componentStack,
+      component: this.pendingContext.component,
+      location: this.pendingContext.location,
     };
   }
 
   stop(): void {
     for (const timer of this.settlingTimers.splice(0)) clearTimeout(timer);
     for (const cleanup of this.cleanups.splice(0)) cleanup();
-    this.messages.clear();
     this.started = false;
   }
 
@@ -151,13 +178,30 @@ export class InspectorController {
     }
     // 1) DOM diff — every visible mismatch (text/attribute/structure), precise
     //    path + component/source from the fiber.
-    const selectors = this.options.roots ?? snapshotSelectors();
+    const configured = this.options.roots;
+    const selectors = configured ?? snapshotSelectors();
+    const context = this.domContext();
     const seen = new Set<Element>();
     for (const selector of selectors) {
-      const root = document.querySelector(selector);
+      let root: Element | null = null;
+      try {
+        root = document.querySelector(selector);
+      } catch {
+        this.warnRoot(selector, `"${selector}" is not a valid CSS selector.`);
+        continue;
+      }
       if (!root || seen.has(root)) continue;
       seen.add(root);
-      inspectRoot(root, this.collector, this.pendingContext, (divergence) =>
+      if (configured && getServerHtmlForRoot(root) == null) {
+        this.warnRoot(
+          selector,
+          `no server HTML was captured for "${selector}". Add it to the ` +
+            '`selectors` prop of <HydrationSnapshotScript> so the server ' +
+            'markup for that root is snapshotted.',
+        );
+        continue;
+      }
+      inspectRoot(root, this.collector, context, (divergence) =>
         resolveReactSource(divergence.element ?? null),
       );
     }
@@ -169,6 +213,15 @@ export class InspectorController {
     for (const message of this.messages) {
       reportFromMessage(message, this.collector, this.pendingContext);
     }
+  }
+
+  // An explicitly configured root that has no server markup can never produce a
+  // report, which used to fail silently. Warn once per selector instead.
+  private warnRoot(selector: string, detail: string): void {
+    if (this.warnedRoots.has(selector)) return;
+    this.warnedRoots.add(selector);
+    // eslint-disable-next-line no-console
+    console.warn(`[why-hydration] Skipping root: ${detail}`);
   }
 
   private scheduleInspect(): void {

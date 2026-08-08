@@ -38,7 +38,60 @@ export function getServerHtmlForRoot(root: Element): string | undefined {
       /* invalid selector */
     }
   }
+  return findNestedServerHtml(snapshot, root);
+}
+
+/**
+ * A root the caller asked for (`roots: ['#app']`) may sit *inside* a captured
+ * root (`body`) instead of being one itself, because the snapshot selectors are
+ * chosen on the server and the inspected roots on the client. Recover its
+ * server HTML by locating the same element by id inside the captured markup, so
+ * a custom `roots` option still works against the default snapshot selectors.
+ */
+function findNestedServerHtml(
+  snapshot: Snapshot,
+  root: Element,
+): string | undefined {
+  if (!root.id) return undefined;
+  const idSelector = `#${escapeId(root.id)}`;
+  for (const selector of Object.keys(snapshot.roots)) {
+    let container: Element | null = null;
+    try {
+      container = document.querySelector(selector);
+    } catch {
+      continue; // invalid selector
+    }
+    if (!container || container === root || !container.contains(root)) continue;
+    const html = snapshot.roots[selector];
+    if (html == null) continue;
+    const parsed = parseInert(html, container.tagName);
+    let match: Element | null = null;
+    try {
+      match = parsed.querySelector(idSelector);
+    } catch {
+      match = null;
+    }
+    if (match) return match.innerHTML;
+  }
   return undefined;
+}
+
+function escapeId(id: string): string {
+  const cssEscape = (globalThis as { CSS?: { escape?(value: string): string } })
+    .CSS?.escape;
+  return typeof cssEscape === 'function'
+    ? cssEscape(id)
+    : id.replace(/[^\w-]/g, '\\$&');
+}
+
+// Kept local rather than shared with the diff engine: this module is also
+// reached from the server-rendered `next/script` entry, which must not pull the
+// dev-only diff implementation into its bundle.
+function parseInert(html: string, tagName: string): Element {
+  const doc = document.implementation.createHTMLDocument('');
+  const container = doc.createElement(tagName || 'div');
+  container.innerHTML = html;
+  return container;
 }
 
 export function captureSnapshotNow(

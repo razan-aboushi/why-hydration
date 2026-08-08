@@ -8,7 +8,7 @@ export function installConsoleInterceptor(
   onMessage: (message: string, args: readonly unknown[]) => void,
 ): () => void {
   if (typeof console === 'undefined') return () => {};
-  const original = console.error.bind(console) as ErrorFn;
+  const original = console.error;
   const patched: ErrorFn = (...args: unknown[]) => {
     try {
       const message = formatConsoleArgs(args);
@@ -18,7 +18,10 @@ export function installConsoleInterceptor(
     } catch {
       /* never let interception break normal logging */
     }
-    original(...args);
+    // `apply` rather than a bound copy, so uninstalling can hand back the exact
+    // function we replaced. Restoring a bound copy instead leaves a wrapper
+    // behind on every install/uninstall cycle.
+    original.apply(console, args);
   };
   console.error = patched as typeof console.error;
 

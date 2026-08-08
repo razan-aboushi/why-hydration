@@ -60,20 +60,34 @@ export function extractComponentFromMessage(
 const ATTR_RE = /^([\w:-]+)=(?:"([\s\S]*)"|\{([\s\S]*)\})$/;
 
 /**
+ * A `+`/`-` line from React's JSX diff tree.
+ *
+ * The two-space gap is load-bearing. React 19's hydration warning opens with a
+ * prose list of likely causes, and every item starts with "- " — a single
+ * space. Accepting those as server-side diff lines turned React's own help text
+ * into five bogus "server rendered this" reports on every mismatch. Real diff
+ * lines pad the marker out to the tree's indentation, so the gap is never 1.
+ */
+const DIFF_LINE_RE = /^([+-])\s{2,}(\S.*)$/;
+
+function diffLines(message: string): { plus: string[]; minus: string[] } {
+  const plus: string[] = [];
+  const minus: string[] = [];
+  for (const raw of message.split('\n')) {
+    const match = DIFF_LINE_RE.exec(raw.trim());
+    if (!match) continue;
+    (match[1] === '+' ? plus : minus).push(match[2]!.trim());
+  }
+  return { plus, minus };
+}
+
+/**
  * Modern React (18.3+/19) prints hydration mismatches as a JSX diff tree with
  * `+` (client) and `-` (server) lines. This extracts the changed attribute or
  * text and both values.
  */
 function parseModernDiff(message: string): Divergence | null {
-  const plus: string[] = [];
-  const minus: string[] = [];
-  for (const raw of message.split('\n')) {
-    const line = raw.trim();
-    const p = /^\+\s+(.+)$/.exec(line);
-    const mn = /^-\s+(.+)$/.exec(line);
-    if (p && p[1]) plus.push(p[1].trim());
-    else if (mn && mn[1]) minus.push(mn[1].trim());
-  }
+  const { plus, minus } = diffLines(message);
   if (plus.length === 0 && minus.length === 0) return null;
 
   // Prefer a matching attribute pair (same attribute on + and -).
@@ -100,10 +114,11 @@ function parseModernDiff(message: string): Divergence | null {
     }
   }
 
-  // Otherwise a text/content change: pick the non-attribute lines.
+  // Otherwise a text change — but only when both sides are present. A lone `+`
+  // text line is React echoing unchanged content around a changed attribute.
   const client = plus.find((p) => !ATTR_RE.test(p)) ?? null;
   const server = minus.find((m) => !ATTR_RE.test(m)) ?? null;
-  if (client !== null || server !== null) {
+  if (client !== null && server !== null) {
     return {
       kind: 'text',
       path: 'body',
@@ -143,9 +158,12 @@ export function parseHydrationMessage(message: string): Divergence | null {
   const modern = parseModernDiff(message);
   if (modern) return modern;
 
-  // Legacy explicit formats (React <18.3).
+  // Legacy explicit formats (React <18.3). These are anchored per *line*, not
+  // per string: React always appends the component stack ("\n    at span\n
+  // at div") after the values, and an end-of-string anchor never reaches past
+  // it, which silently dropped both values from every real message.
   const text =
-    /Text content (?:did not match|does not match)[^:]*Server:\s*"?(.*?)"?\s+Client:\s*"?(.*?)"?\s*$/i.exec(
+    /Text content (?:did not match|does not match)[^:]*Server:\s*"?(.*?)"?\s+Client:\s*"?(.*?)"?\s*$/im.exec(
       message,
     );
   if (text) {
@@ -159,7 +177,7 @@ export function parseHydrationMessage(message: string): Divergence | null {
   }
 
   const prop =
-    /Prop [`'"]([^`'"]+)[`'"] did not match\.?\s*Server:\s*"?(.*?)"?\s+Client:\s*"?(.*?)"?\s*$/i.exec(
+    /Prop [`'"]([^`'"]+)[`'"] did not match\.?\s*Server:\s*"?(.*?)"?\s+Client:\s*"?(.*?)"?\s*$/im.exec(
       message,
     );
   if (prop) {
@@ -221,58 +239,80 @@ export function parseHydrationMessage(message: string): Divergence | null {
 export function parseAllHydrationDivergences(message: string): Divergence[] {
   if (!isHydrationMessage(message)) return [];
 
-  const plus: string[] = [];
-  const minus: string[] = [];
-  for (const raw of message.split('\n')) {
-    const line = raw.trim();
-    const p = /^\+\s+(.+)$/.exec(line);
-    const mn = /^-\s+(.+)$/.exec(line);
-    if (p && p[1]) plus.push(p[1].trim());
-    else if (mn && mn[1]) minus.push(mn[1].trim());
-  }
-  if (plus.length === 0 && minus.length === 0) {
+  const fallback = (): Divergence[] => {
     const single = parseHydrationMessage(message);
     return single ? [single] : [];
-  }
+  };
+
+  const { plus, minus } = diffLines(message);
+  if (plus.length === 0 && minus.length === 0) return fallback();
 
   const out: Divergence[] = [];
+  const attrPlus = plus.filter((p) => ATTR_RE.test(p));
   const attrMinus = minus.filter((m) => ATTR_RE.test(m));
   const usedMinus = new Set<number>();
 
-  for (const p of plus) {
-    const pm = ATTR_RE.exec(p);
-    if (!pm) continue;
-    const name = pm[1];
-    const clientValue = pm[2] ?? pm[3] ?? '';
-    const idx = attrMinus.findIndex((m, k) => {
-      if (usedMinus.has(k)) return false;
-      const parsed = ATTR_RE.exec(m);
-      return parsed?.[1] === name;
-    });
-    if (idx >= 0) {
-      usedMinus.add(idx);
-      const parsed = ATTR_RE.exec(attrMinus[idx]!);
-      out.push({
-        kind: 'attribute',
-        path: 'body',
-        attribute: name,
-        server: parsed ? (parsed[2] ?? parsed[3] ?? '') : '',
-        client: clientValue,
-        reactMessage: message,
-      });
-    }
+  const attribute = (
+    name: string,
+    server: string | null,
+    client: string | null,
+  ): Divergence => ({
+    kind: 'attribute',
+    path: 'body',
+    attribute: name,
+    server,
+    client,
+    reactMessage: message,
+  });
+
+  for (const line of attrPlus) {
+    const name = attrName(line);
+    if (!name) continue;
+    const idx = attrMinus.findIndex(
+      (m, k) => !usedMinus.has(k) && attrName(m) === name,
+    );
+    if (idx >= 0) usedMinus.add(idx);
+    // No `-` counterpart means the server never rendered the attribute at all.
+    const server = idx >= 0 ? attrValue(attrMinus[idx]!) : null;
+    out.push(attribute(name, server, attrValue(line)));
   }
 
+  // `-` lines left unpaired: the attribute exists only in the server HTML.
+  // Without this they would be dropped entirely — the text pass below filters
+  // attribute lines out, so nothing else would ever report them.
+  attrMinus.forEach((line, k) => {
+    if (usedMinus.has(k)) return;
+    const name = attrName(line);
+    if (name) out.push(attribute(name, attrValue(line), null));
+  });
+
+  // Text needs both sides, unlike attributes. React prints the surrounding
+  // text of an element whose *attribute* changed as a `+` context line, with
+  // no `-` counterpart even though the server rendered exactly the same text.
+  // Taking that as "the server rendered nothing here" reported every React 19
+  // attribute mismatch as a browser-only API call too. A genuinely one-sided
+  // text node is the DOM diff's job, and it can see those precisely.
   const textPlus = plus.filter((p) => !ATTR_RE.test(p));
   const textMinus = minus.filter((m) => !ATTR_RE.test(m));
-  const len = Math.max(textPlus.length, textMinus.length);
-  for (let i = 0; i < len; i++) {
-    const client = textPlus[i] ?? null;
-    const server = textMinus[i] ?? null;
-    if (client !== null || server !== null) {
-      out.push({ kind: 'text', path: 'body', server, client, reactMessage: message });
-    }
+  const pairs = Math.min(textPlus.length, textMinus.length);
+  for (let i = 0; i < pairs; i++) {
+    out.push({
+      kind: 'text',
+      path: 'body',
+      server: textMinus[i]!,
+      client: textPlus[i]!,
+      reactMessage: message,
+    });
   }
 
-  return out.length ? out : (parseHydrationMessage(message) ? [parseHydrationMessage(message)!] : []);
+  return out.length ? out : fallback();
+}
+
+function attrName(line: string): string | undefined {
+  return ATTR_RE.exec(line)?.[1];
+}
+
+function attrValue(line: string): string {
+  const parsed = ATTR_RE.exec(line);
+  return parsed ? (parsed[2] ?? parsed[3] ?? '') : '';
 }
