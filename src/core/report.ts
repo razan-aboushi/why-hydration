@@ -77,9 +77,26 @@ export class ReportCollector {
     this.maxReports = options.maxReports ?? 25;
   }
 
-  addSink(sink: ReportSink): () => void {
+  /**
+   * Register a sink. Pass `replay` for sinks that render *state* (the overlay)
+   * rather than react to *events* (`onReport`, the console): they need the
+   * reports collected before they were attached, which matters when a sink is
+   * re-attached after a stop/start cycle.
+   */
+  addSink(sink: ReportSink, options: { replay?: boolean } = {}): () => void {
     this.sinks.add(sink);
+    if (options.replay) {
+      for (const report of this.reports) this.emit(sink, report);
+    }
     return () => this.sinks.delete(sink);
+  }
+
+  private emit(sink: ReportSink, report: HydrationReport): void {
+    try {
+      sink(report);
+    } catch {
+      /* a failing sink must not stop the others */
+    }
   }
 
   getReports(): readonly HydrationReport[] {
@@ -107,13 +124,7 @@ export class ReportCollector {
 
     this.seen.add(signature);
     this.reports.push(report);
-    for (const sink of this.sinks) {
-      try {
-        sink(report);
-      } catch {
-        /* a failing sink must not stop the others */
-      }
-    }
+    for (const sink of this.sinks) this.emit(sink, report);
     return report;
   }
 
