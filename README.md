@@ -2,7 +2,9 @@
 
 [![npm version](https://img.shields.io/npm/v/why-hydration.svg)](https://www.npmjs.com/package/why-hydration)
 [![npm downloads](https://img.shields.io/npm/dm/why-hydration.svg)](https://www.npmjs.com/package/why-hydration)
-[![minzipped size](https://img.shields.io/bundlephobia/minzip/why-hydration.svg)](https://bundlephobia.com/package/why-hydration)
+[![CI](https://github.com/razan-aboushi/why-hydration/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/razan-aboushi/why-hydration/actions/workflows/ci.yml)
+[![prod bundle: 99 B gzipped](https://img.shields.io/badge/prod%20bundle-99%20B%20gzipped-brightgreen)](#production-behavior)
+[![node: >=18](https://img.shields.io/node/v/why-hydration)](#install)
 [![license: MIT](https://img.shields.io/npm/l/why-hydration.svg)](LICENSE)
 
 📦 **npm:** https://www.npmjs.com/package/why-hydration &nbsp;·&nbsp; 🐙 **GitHub:** https://github.com/razan-aboushi/why-hydration &nbsp;·&nbsp; 💼 **Author:** [Razan Aboushi](https://www.linkedin.com/in/razan-aboushi/)
