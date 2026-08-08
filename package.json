@@ -1,6 +1,6 @@
 {
   "name": "why-hydration",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Tells you which component broke hydration, what differed, and how to fix it — in dev, with zero production cost.",
   "license": "MIT",
   "author": "Razan Aboushi (https://www.linkedin.com/in/razan-aboushi/)",

@@ -17,9 +17,6 @@ import { createConsoleReporter } from './console';
 import { createOverlay, type OverlayOptions } from './overlay';
 import { resolveReactSource } from './fiber';
 
-// Upper bound on how long a signal waits for its inspection pass when the
-// page is hidden and `requestAnimationFrame` is suspended. Short enough to
-// stay within the settling window, long enough to still coalesce a burst.
 const INSPECT_FALLBACK_MS = 50;
 
 export interface InspectorOptions {
@@ -69,15 +66,10 @@ export class InspectorController {
     this.collector = new ReportCollector({
       maxReports: options.maxReports,
       extra: options.classify,
-      ignore: buildIgnore(options.ignore),
+      ignore: buildIgnore(options?.ignore),
     });
   }
 
-  // Safe to call again after `stop()`: every sink and subscription goes through
-  // `cleanups`, so a restart re-attaches exactly one of each rather than
-  // stacking duplicates. Reports already collected survive the cycle, and the
-  // messages React logged during hydration are replayed from the shared
-  // capture, so a resumed controller sees the same evidence a fresh one would.
   start(): void {
     if (this.started || !isDev || typeof window === 'undefined') return;
     this.started = true;
@@ -138,10 +130,6 @@ export class InspectorController {
     this.scheduleInspect();
   };
 
-  // Every retained message is re-parsed on every inspection pass, so the set
-  // has to stay bounded. The console capture already caps itself; this also
-  // covers `onRecoverableError`, which React drives directly and which an app
-  // erroring in a render loop can call without limit.
   private rememberMessage(message: string): void {
     if (this.messages.size >= MAX_CAPTURED && !this.messages.has(message)) {
       return;
@@ -149,8 +137,6 @@ export class InspectorController {
     this.messages.add(message);
   }
 
-  // The newest signal wins per field, so a second hydration error is not
-  // ignored in favour of the first. Fields the new context omits are kept.
   private mergeContext(ctx: DetectionContext): void {
     this.pendingContext = {
       componentStack: ctx.componentStack ?? this.pendingContext.componentStack,
@@ -160,9 +146,6 @@ export class InspectorController {
     };
   }
 
-  // Context for reports the DOM diff produces. It carries the component and
-  // source hints but never `reactMessage`: that message describes one specific
-  // node, and attaching it to unrelated divergences would misattribute them.
   private domContext(): DetectionContext {
     return {
       componentStack: this.pendingContext.componentStack,
@@ -173,10 +156,6 @@ export class InspectorController {
 
   stop(): void {
     for (const timer of this.settlingTimers.splice(0)) clearTimeout(timer);
-    // Must clear the latch, not just the timer: a frame requested before the
-    // stop may never arrive (a hidden page suspends them indefinitely), and a
-    // latch left set would make every later `scheduleInspect` a no-op for the
-    // rest of the session — including after a restart.
     this.clearScheduledInspect();
     for (const cleanup of this.cleanups.splice(0)) cleanup();
     this.started = false;
@@ -229,17 +208,11 @@ export class InspectorController {
       );
     }
 
-    // 2) React's own messages — the ONLY source for class/style mismatches
-    //    (React doesn't patch attributes into the DOM) and for cases with no
-    //    snapshot. Value-based dedup means this never double-reports a mismatch
-    //    the DOM diff already found.
     for (const message of this.messages) {
       reportFromMessage(message, this.collector, this.pendingContext);
     }
   }
 
-  // An explicitly configured root that has no server markup can never produce a
-  // report, which used to fail silently. Warn once per selector instead.
   private warnRoot(selector: string, detail: string): void {
     if (this.warnedRoots.has(selector)) return;
     this.warnedRoots.add(selector);
@@ -247,18 +220,6 @@ export class InspectorController {
     console.warn(`[why-hydration] Skipping root: ${detail}`);
   }
 
-  // Coalesced: an inspection is a full tree diff of every root, and messages
-  // arrive in bursts (React logs several at once, and the whole backlog is
-  // replayed the moment a controller subscribes). One pass per frame sees the
-  // same DOM as N passes would, so anything beyond the first is pure cost.
-  //
-  // Two racers, because neither alone is sufficient. `requestAnimationFrame`
-  // lines the pass up with the frame React just committed — but the browser
-  // suspends it entirely while the page is hidden, so a tab opened in the
-  // background would latch `inspectScheduled` and never inspect again. The
-  // timer is the floor that guarantees the pass happens either way. Whichever
-  // fires first clears the latch; the other then finds it clear and does
-  // nothing.
   private scheduleInspect(): void {
     if (this.inspectScheduled) return;
     this.inspectScheduled = true;
