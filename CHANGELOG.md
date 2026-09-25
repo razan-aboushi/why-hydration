@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.2.0
+
+### Minor Changes
+
+- The overlay now speaks Arabic, and renders right-to-left data correctly in any language.
+
+  **Arabic overlay**
+
+  - On a page whose `<html lang>` is Arabic, the whole panel is in Arabic and
+    laid out right-to-left — title, buttons, category names, explanations, fixes,
+    and the scroll hint, with correct Arabic plurals. Every other page, including
+    right-to-left pages in languages the overlay does not translate, gets the
+    English panel as before.
+  - New `overlay={{ locale: 'auto' | 'en' | 'ar' }}` option. `'auto'` is the
+    default and follows `<html lang>`.
+  - The console output and the `explanation`/`suggestion` strings in `onReport`
+    stay English and are byte-identical to 0.1.5. Every built-in cause now also
+    carries `messageId` and `params`, which is how the overlay finds the
+    translation.
+
+  **Right-to-left rendering fixes**
+
+  - Arabic values no longer have their sentence punctuation moved to the wrong
+    end. Each value cell takes its direction from its own content, in either
+    panel language.
+  - Arabic values are drawn in a proportional face instead of a monospace
+    fallback, which rendered them with their letters disconnected.
+  - Selectors, component names, file paths and attribute names are isolated
+    left-to-right, and quoted values inside explanations are isolated one by one,
+    so brackets cannot mirror and tokens cannot swap places.
+  - The panel declares its own `lang`. Previously an English panel on an Arabic
+    page inherited `lang="ar"`, so screen readers voiced it with an Arabic voice.
+
+  **Other fixes**
+
+  - Invisible bidi marks (LRM, RLM, isolates…) are drawn as labelled badges in
+    the value cells, so the bidi-mark case no longer shows two identical-looking
+    values. Value cells also preserve whitespace, so whitespace-only mismatches
+    are visible.
+  - Component attribution from a React component stack no longer names a DOM tag
+    such as `<p>`; it names the nearest component you wrote.
+  - React's bare "hydration failed" message no longer adds an empty card next to
+    a real mismatch. When it is the only signal it is still reported, with text
+    that says React did not name the node, instead of "inspect the values above".
+
 ## 0.1.5
 
 ### Patch Changes
