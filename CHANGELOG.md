@@ -44,6 +44,11 @@
   - React's bare "hydration failed" message no longer adds an empty card next to
     a real mismatch. When it is the only signal it is still reported, with text
     that says React did not name the node, instead of "inspect the values above".
+  - React 19 hydration errors no longer produce junk reports. React 19 prints a
+    bulleted list of possible causes above its diff tree, and each bullet was
+    read as a removed ("server") diff line — five bogus "Unknown" reports per
+    mismatch, with the real client value paired against the first bullet. Only
+    the tree after React's hydration-mismatch link is read as a diff now.
 
 ## 0.1.5
 
