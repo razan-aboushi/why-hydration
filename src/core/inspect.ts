@@ -1,3 +1,4 @@
+import { isLocationless } from './classify';
 import { collectDivergences, parseServerHtml } from './diff';
 import {
   extractComponentFromMessage,
@@ -54,14 +55,32 @@ function serverTreeFor(root: Element, html: string): Element {
   return tree;
 }
 
+export interface ReportFromMessageOptions {
+  /**
+   * What to do with a divergence that points at nothing — React's bare
+   * "hydration failed" message, which names no node and that no rule can
+   * explain. `'include'` (the default) reports it like anything else;
+   * `'skip'` leaves it out; `'only'` reports nothing else.
+   */
+  locationless?: 'include' | 'skip' | 'only';
+}
+
 // Report every divergence a React hydration message describes. Deduped by value
 // in the collector, so it's safe to call alongside the DOM diff and repeatedly.
 export function reportFromMessage(
   message: string,
   collector: ReportCollector,
   context: DetectionContext = {},
+  options: ReportFromMessageOptions = {},
 ): number {
-  const divergences = parseAllHydrationDivergences(message);
+  const mode = options.locationless ?? 'include';
+  const divergences = parseAllHydrationDivergences(message).filter((d) => {
+    if (mode === 'include') return true;
+    const bare =
+      isLocationless(d) &&
+      collector.classify(d).messageId === 'unknown.no-location';
+    return mode === 'skip' ? !bare : bare;
+  });
   const component = extractComponentFromMessage(message) ?? context.component;
   let reported = 0;
   for (const divergence of divergences) {

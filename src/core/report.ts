@@ -110,6 +110,14 @@ export class ReportCollector {
     return this.reports;
   }
 
+  /** The cause this collector would assign — same rules, same threshold. */
+  classify(divergence: Divergence): Cause {
+    return classify(divergence, {
+      extra: this.options.extra,
+      threshold: this.options.threshold,
+    });
+  }
+
   get isFull(): boolean {
     return this.reports.length >= this.maxReports;
   }
@@ -121,10 +129,7 @@ export class ReportCollector {
     if (this.isFull) return null;
     if (this.options.ignore?.(divergence)) return null;
 
-    const cause = classify(divergence, {
-      extra: this.options.extra,
-      threshold: this.options.threshold,
-    });
+    const cause = this.classify(divergence);
     const report = buildReport(divergence, cause, context);
     const signature = signatureOf(report);
     if (this.seen.has(signature)) return null;

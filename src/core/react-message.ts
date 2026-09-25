@@ -29,7 +29,7 @@ export function formatConsoleArgs(args: readonly unknown[]): string {
 }
 
 // Next.js / React internal components we never want to name as the culprit.
-function isInternalComponent(name: string): boolean {
+export function isInternalComponent(name: string): boolean {
   return (
     /^(Inner|Outer|Segment|Client|Server|Redirect|Error|Loading|HTTPAccess|RenderFrom|ScrollAndFocus|Metadata|Outlet|ViewTransition|NotFound|Hot|DevRoot|App)$/.test(
       name,

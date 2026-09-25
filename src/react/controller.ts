@@ -1,4 +1,5 @@
 import { inspectRoot, reportFromMessage } from '../core/inspect';
+import { isInternalComponent } from '../core/react-message';
 import { ReportCollector } from '../core/report';
 import {
   DEFAULT_SNAPSHOT_SELECTORS,
@@ -208,8 +209,29 @@ export class InspectorController {
       );
     }
 
+    // 2) React's own messages — the only source for class/style mismatches
+    //    (React doesn't patch attributes into the DOM) and for pages with no
+    //    snapshot. Value-based dedup means this never double-reports a
+    //    mismatch the DOM diff already found.
     for (const message of this.messages) {
-      reportFromMessage(message, this.collector, this.pendingContext);
+      reportFromMessage(message, this.collector, this.pendingContext, {
+        locationless: 'skip',
+      });
+    }
+    // 3) React's bare "hydration failed" message names no node. Next to a
+    //    concrete report it is a card with no values; it earns its place only
+    //    when nothing else was found — no snapshot script, say — because then
+    //    it is the one sign that hydration failed at all. Deciding after the
+    //    other messages keeps that independent of the order they arrived in.
+    const concrete = this.collector
+      .getReports()
+      .some((r) => r.cause.messageId !== 'unknown.no-location');
+    if (!concrete) {
+      for (const message of this.messages) {
+        reportFromMessage(message, this.collector, this.pendingContext, {
+          locationless: 'only',
+        });
+      }
     }
   }
 
@@ -247,8 +269,17 @@ function snapshotSelectors(): string[] {
   return keys.length > 0 ? keys : [...DEFAULT_SNAPSHOT_SELECTORS];
 }
 
+// A component stack lists frames innermost first, and the innermost ones are
+// usually host elements — `at p`, `at span` — which are DOM tags, not
+// components. Naming those as the culprit sends the reader to the wrong
+// place, so skip them (lowercase by JSX convention) along with framework
+// internals, and report the nearest component the developer actually wrote.
 function firstComponentFromStack(stack?: string): string | undefined {
   if (!stack) return undefined;
-  const match = /\n?\s*(?:at|in)\s+([A-Za-z0-9_$]+)/.exec(stack);
-  return match?.[1];
+  const frame = /(?:^|\n)\s*(?:at|in)\s+([A-Za-z0-9_$]+)/g;
+  for (const match of stack.matchAll(frame)) {
+    const name = match[1]!;
+    if (/^[A-Z]/.test(name) && !isInternalComponent(name)) return name;
+  }
+  return undefined;
 }

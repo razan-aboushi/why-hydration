@@ -17,7 +17,7 @@ const LATIN_DIGITS = /[0-9]/;
  * invisible marks. That is a genuine hydration mismatch whose diff is literally
  * invisible, which is exactly the case a developer cannot debug by eye.
  */
-const BIDI_CONTROLS = /[‎‏؜⁦-⁩]/g;
+const BIDI_CONTROLS = /[\u200e\u200f\u061c\u2066-\u2069]/g;
 
 export function stripBidiControls(value: string): string {
   return value.replace(BIDI_CONTROLS, '');
@@ -120,7 +120,7 @@ export function hasLatinDigits(value: string): boolean {
   return LATIN_DIGITS.test(value);
 }
 
-// A value made only of digits, separators and an optional sign \u2014 i.e. it
+// A value made only of digits, separators and an optional sign — i.e. it
 // actually looks like a formatted number. Guards against class lists, ids, and
 // arbitrary text that merely contain digits (e.g. "radius-8 border p-8").
 const NUMERIC_LIKE = /^[+-]?[\d.,\s\u00a0\u2009]+$/;
@@ -134,14 +134,14 @@ export function isSameNumberDifferentSeparators(a: string, b: string): boolean {
   const db = digitsOnly(bt);
   if (!da || da !== db) return false;
   const hasSep = (s: string) => /[.,\s\u00a0\u2009]/.test(s);
-  // The "actually different" test is on the RAW values: `\u0661\u0662\u0663\u0664\u066b\u0665\u0666` and
-  // `\u0661\u0662\u0663\u0664.\u0665\u0666` fold to the same string but are two different renderings of the
+  // The "actually different" test is on the RAW values: `١٢٣٤٫٥٦` and
+  // `١٢٣٤.٥٦` fold to the same string but are two different renderings of the
   // same number, which is precisely the mismatch being classified.
   return (hasSep(at) || hasSep(bt)) && a.trim() !== b.trim();
 }
 
 // Attributes whose value is human-facing content that can carry locale/date/
-// random formatting. Structural attributes (class, style, id, href\u2026) are not.
+// random formatting. Structural attributes (class, style, id, href…) are not.
 const CONTENT_ATTRIBUTES = new Set<string>([
   'value',
   'placeholder',

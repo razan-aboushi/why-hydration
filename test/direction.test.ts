@@ -1,9 +1,13 @@
 /**
- * Text direction. The overlay renders English diagnostics with a server/client
- * diff laid out left-to-right, so it must stay LTR even when the host page is
- * RTL — the CSS `all` shorthand deliberately excludes `direction`/`unicode-bidi`
- * (per spec), so `:host { all: initial }` alone still lets `direction: rtl` leak
- * into the shadow tree and flip the diff columns and text alignment.
+ * Text direction when the page's direction and the overlay's language differ.
+ *
+ * These pages set `dir` but no `lang` — a right-to-left page in a language the
+ * overlay does not speak (Hebrew, Persian, Urdu…). The overlay then renders in
+ * English, so it must stay left-to-right and not inherit the page's direction:
+ * the CSS `all` shorthand deliberately excludes `direction`/`unicode-bidi` (per
+ * spec), so `:host { all: initial }` alone would still let `direction: rtl`
+ * leak into the shadow tree. Arabic pages, which get an Arabic right-to-left
+ * panel, are covered in `test/overlay-rtl.test.ts`.
  *
  * jsdom implements neither the shadow-DOM CSS cascade nor bidi layout, so these
  * assert the guarantees that *are* observable: the `dir` attribute on the host
@@ -72,16 +76,25 @@ describe.each(['rtl', 'ltr'] as const)('overlay on a dir="%s" page', (dir) => {
     overlay.destroy();
   });
 
-  it('pins the shadow tree to LTR with the injected stylesheet', () => {
+  it("sets the panel to LTR inside the shadow root, out of the page's reach", () => {
     document.documentElement.setAttribute('dir', dir);
     const overlay = createOverlay();
     overlay.push(report());
 
+    const panel = document
+      .getElementById('why-hydration-overlay')!
+      .shadowRoot!.querySelector('.wh-panel')!;
+    expect(panel.getAttribute('dir')).toBe('ltr');
+    expect(panel.getAttribute('lang')).toBe('en');
+
     const css = styleSheet();
+    // The host is isolated from the page's direction…
     expect(css).toMatch(/:host\s*{[^}]*direction:\s*ltr/);
     expect(css).toMatch(/:host\s*{[^}]*unicode-bidi:\s*isolate/);
-    expect(css).toMatch(/\.wh-panel\s*{[^}]*direction:\s*ltr/);
-    expect(css).toMatch(/\.wh-panel\s*{[^}]*text-align:\s*left/);
+    // …and the panel's direction is pinned by a shadow-scoped rule keyed on
+    // its own dir, which no outer stylesheet can override.
+    expect(css).toMatch(/\.wh-panel\[dir="ltr"\]\s*{[^}]*direction:\s*ltr/);
+    expect(css).toMatch(/\.wh-panel\s*{[^}]*text-align:\s*start/);
     overlay.destroy();
   });
 

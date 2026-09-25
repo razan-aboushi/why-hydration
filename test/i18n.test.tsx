@@ -402,9 +402,12 @@ describe('end to end, both directions', () => {
       expect(onReport).toHaveBeenCalledOnce();
       expect(onReport.mock.calls[0]![0].cause.category).toBe(expected);
 
-      // The overlay stays LTR whichever way the page runs.
+      // The overlay follows the page's language: Arabic pages get an Arabic,
+      // right-to-left panel; English pages keep the English, LTR one.
       const host = document.getElementById('why-hydration-overlay')!;
-      expect(host.getAttribute('dir')).toBe('ltr');
+      const panel = host.shadowRoot!.querySelector('.wh-panel')!;
+      expect(panel.getAttribute('dir')).toBe(dir);
+      expect(panel.getAttribute('lang')).toBe(dir === 'rtl' ? 'ar' : 'en');
       controller.stop();
     },
   );

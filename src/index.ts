@@ -31,7 +31,9 @@ export {
   BUILT_IN_RULES,
   CONFIDENCE_THRESHOLD,
   UNKNOWN_CAUSE,
+  UNKNOWN_NO_LOCATION_CAUSE,
   classify,
+  isLocationless,
   type ClassifyOptions,
 } from './core/classify';
 
@@ -43,7 +45,11 @@ export {
   type ReportSink,
 } from './core/report';
 
-export { inspectRoot, reportFromMessage } from './core/inspect';
+export {
+  inspectRoot,
+  reportFromMessage,
+  type ReportFromMessageOptions,
+} from './core/inspect';
 
 export {
   formatConsoleArgs,
