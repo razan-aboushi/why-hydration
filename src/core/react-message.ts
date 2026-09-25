@@ -57,6 +57,32 @@ export function extractComponentFromMessage(
   return names.length ? names[names.length - 1] : undefined;
 }
 
+/**
+ * The lines of a message that can hold a JSX diff.
+ *
+ * React 19 prefixes its diff tree with a bulleted list of possible causes —
+ * "- A server/client branch `if (typeof window !== 'undefined')`." and four
+ * more — and those lines are indistinguishable from removed (`-`) diff lines:
+ * React writes a removed line at depth 0 as "- " plus the content, one space,
+ * exactly like a bullet. Read as diff lines, each bullet became a bogus
+ * "server" value, which added five junk reports to every React 19 mismatch and
+ * mispaired the real server and client values.
+ *
+ * The tree always follows React's hydration-mismatch link, on the lines after
+ * it (`describeDiff` starts with a blank line), in both the "hydration failed"
+ * error and the "attributes didn't match" warning. So when the link is there,
+ * only what follows it is the diff. Messages without it (React 18.3's format)
+ * are read whole, as before.
+ */
+function diffLines(message: string): string[] {
+  const lines = message.split('\n');
+  let link = -1;
+  lines.forEach((line, i) => {
+    if (/react\.dev\/link\/hydration-mismatch/.test(line)) link = i;
+  });
+  return link >= 0 ? lines.slice(link + 1) : lines;
+}
+
 const ATTR_RE = /^([\w:-]+)=(?:"([\s\S]*)"|\{([\s\S]*)\})$/;
 
 /**
@@ -67,7 +93,7 @@ const ATTR_RE = /^([\w:-]+)=(?:"([\s\S]*)"|\{([\s\S]*)\})$/;
 function parseModernDiff(message: string): Divergence | null {
   const plus: string[] = [];
   const minus: string[] = [];
-  for (const raw of message.split('\n')) {
+  for (const raw of diffLines(message)) {
     const line = raw.trim();
     const p = /^\+\s+(.+)$/.exec(line);
     const mn = /^-\s+(.+)$/.exec(line);
@@ -228,7 +254,7 @@ export function parseAllHydrationDivergences(message: string): Divergence[] {
 
   const plus: string[] = [];
   const minus: string[] = [];
-  for (const raw of message.split('\n')) {
+  for (const raw of diffLines(message)) {
     const line = raw.trim();
     const p = /^\+\s+(.+)$/.exec(line);
     const mn = /^-\s+(.+)$/.exec(line);

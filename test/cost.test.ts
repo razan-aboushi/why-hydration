@@ -67,7 +67,22 @@ const rows = (n: number): string =>
       `<li class="row r${i}"><a href="/x/${i}"><span>item ${i}</span></a></li>`,
   ).join('');
 
+// Controllers created through `make()` are stopped after every test, whether
+// it passed or not. A failing assertion used to skip the test's own `stop()`,
+// leaving a live controller whose settling timers then ran inside the *next*
+// test and broke its counts too.
+const live: InspectorController[] = [];
+function make(
+  options: ConstructorParameters<typeof InspectorController>[0] = {},
+): InspectorController {
+  const controller = new InspectorController(options);
+  live.push(controller);
+  return controller;
+}
+
 afterEach(() => {
+  for (const controller of live.splice(0)) controller.stop();
+  vi.useRealTimers();
   resetCapture();
   delete (window as unknown as Record<string, unknown>)[SNAPSHOT_KEY];
   document.body.innerHTML = '';
@@ -76,9 +91,26 @@ afterEach(() => {
 });
 
 describe('inspection passes are coalesced', () => {
-  it('collapses a burst of messages into a single pass per frame', async () => {
+  // These two count passes, so they run on fake timers: time moves only when
+  // the test advances it. On real timers they raced the controller's own 80 ms
+  // settling pass — whenever two frames took longer than that on a loaded
+  // machine, an extra pass was counted and the test failed.
+  const FRAME = 16;
+  const useFakeFrames = (): void => {
+    vi.useFakeTimers({
+      toFake: [
+        'setTimeout',
+        'clearTimeout',
+        'requestAnimationFrame',
+        'cancelAnimationFrame',
+      ],
+    });
+  };
+
+  it('collapses a burst of messages into a single pass per frame', () => {
+    useFakeFrames();
     seed('<span>a</span>', '<span>b</span>');
-    const controller = new InspectorController({ overlay: false });
+    const controller = make({ overlay: false });
     controller.start();
 
     const passes = countPasses();
@@ -86,41 +118,41 @@ describe('inspection passes are coalesced', () => {
       // eslint-disable-next-line no-console
       console.error(`Warning: hydration failed — variant ${i}`);
     }
-    await nextFrame();
-    await nextFrame();
+    vi.advanceTimersByTime(FRAME + 4);
 
     // One pass, not one per message. Every message lands before the frame
-    // runs, so a single diff sees exactly the DOM 25 diffs would have.
+    // runs, so a single diff sees exactly the DOM 25 diffs would have — and
+    // the 50 ms fallback timer, which lost the race, adds nothing.
     expect(passes.calls()).toBe(1);
-    passes.restore();
-    controller.stop();
+    vi.advanceTimersByTime(50);
+    expect(passes.calls()).toBe(1);
   });
 
-  it('still inspects again for a message that arrives in a later frame', async () => {
+  it('still inspects again for a message that arrives in a later frame', () => {
+    useFakeFrames();
     seed('<span>a</span>', '<span>b</span>');
-    const controller = new InspectorController({ overlay: false });
+    const controller = make({ overlay: false });
     controller.start();
+    // Drain the pass start() schedules, so only the messages are counted.
+    vi.advanceTimersByTime(FRAME + 4);
 
     const passes = countPasses();
     // eslint-disable-next-line no-console
     console.error('Warning: hydration failed — first');
-    await nextFrame();
-    await nextFrame();
+    vi.advanceTimersByTime(FRAME + 4);
     // eslint-disable-next-line no-console
     console.error('Warning: hydration failed — second');
-    await nextFrame();
-    await nextFrame();
+    vi.advanceTimersByTime(FRAME + 4);
 
-    // Coalescing must not swallow a genuinely later signal.
+    // Coalescing must not swallow a genuinely later signal. All of this is
+    // inside the first 80 ms, before any settling pass could run.
     expect(passes.calls()).toBe(2);
-    passes.restore();
-    controller.stop();
   });
 
   it('reports every distinct mismatch from a coalesced burst', async () => {
     seed('<span>a</span>', '<span>b</span>');
     const onReport = vi.fn();
-    const controller = new InspectorController({ onReport, overlay: false });
+    const controller = make({ onReport, overlay: false });
     controller.start();
 
     // eslint-disable-next-line no-console
@@ -167,7 +199,7 @@ describe('scheduling survives a suspended requestAnimationFrame', () => {
     seed('<span>a</span>', '<span>b</span>');
     const restore = suspendFrames();
     const onReport = vi.fn();
-    const controller = new InspectorController({ onReport, overlay: false });
+    const controller = make({ onReport, overlay: false });
     controller.start();
 
     // eslint-disable-next-line no-console
@@ -186,7 +218,7 @@ describe('scheduling survives a suspended requestAnimationFrame', () => {
     seed('<span>a</span>', '<span>b</span>');
     const restore = suspendFrames();
     const onReport = vi.fn();
-    const controller = new InspectorController({ onReport, overlay: false });
+    const controller = make({ onReport, overlay: false });
     controller.start();
 
     // eslint-disable-next-line no-console
@@ -212,7 +244,7 @@ describe('scheduling survives a suspended requestAnimationFrame', () => {
     seed('<span>a</span>', '<span>b</span>');
     const restore = suspendFrames();
     const onReport = vi.fn();
-    const controller = new InspectorController({ onReport, overlay: false });
+    const controller = make({ onReport, overlay: false });
 
     controller.start();
     controller.stop();
@@ -232,7 +264,7 @@ describe('scheduling survives a suspended requestAnimationFrame', () => {
   it('leaves no timer pending after stop', async () => {
     seed('<span>a</span>', '<span>b</span>');
     const restore = suspendFrames();
-    const controller = new InspectorController({ overlay: false });
+    const controller = make({ overlay: false });
     controller.start();
     // eslint-disable-next-line no-console
     console.error('Warning: hydration failed');
@@ -254,7 +286,7 @@ describe('captured server markup is parsed once', () => {
     captureSnapshotNow(['#root']);
     document.querySelector('#root span')!.textContent = 'changed';
 
-    const controller = new InspectorController({ overlay: false });
+    const controller = make({ overlay: false });
     controller.start();
     const parses = countParses();
     controller.inspectNow();
@@ -272,7 +304,7 @@ describe('captured server markup is parsed once', () => {
     captureSnapshotNow(['body']);
     document.querySelector('#app span')!.textContent = 'changed';
 
-    const controller = new InspectorController({
+    const controller = make({
       overlay: false,
       roots: ['#app'],
     });
@@ -291,7 +323,7 @@ describe('captured server markup is parsed once', () => {
 
   it('re-parses when the snapshot is replaced', () => {
     seed(`<ul>${rows(20)}</ul>`, `<ul>${rows(20)}</ul>`);
-    const controller = new InspectorController({ overlay: false });
+    const controller = make({ overlay: false });
     controller.start();
     const parses = countParses();
     controller.inspectNow();
@@ -312,7 +344,7 @@ describe('captured server markup is parsed once', () => {
   it('still finds the mismatch it would have found without the cache', () => {
     seed('<span>server</span>', '<span>client</span>');
     const onReport = vi.fn();
-    const controller = new InspectorController({ onReport, overlay: false });
+    const controller = make({ onReport, overlay: false });
     controller.start();
     controller.inspectNow();
     controller.inspectNow();
@@ -326,7 +358,7 @@ describe('captured server markup is parsed once', () => {
   it('sees DOM changes made between passes', () => {
     seed('<span>server</span>', '<span>server</span>');
     const onReport = vi.fn();
-    const controller = new InspectorController({ onReport, overlay: false });
+    const controller = make({ onReport, overlay: false });
     controller.start();
     controller.inspectNow();
     expect(onReport).not.toHaveBeenCalled();
@@ -345,7 +377,7 @@ describe('captured server markup is parsed once', () => {
 describe('retained state stays bounded', () => {
   it('keeps at most MAX_CAPTURED messages however many arrive', () => {
     seed('<span>a</span>', '<span>b</span>');
-    const controller = new InspectorController({ overlay: false });
+    const controller = make({ overlay: false });
     controller.start();
     for (let i = 0; i < MAX_CAPTURED * 6; i++) {
       // eslint-disable-next-line no-console
@@ -362,7 +394,7 @@ describe('retained state stays bounded', () => {
 
   it('bounds messages fed straight through onRecoverableError', () => {
     seed('<span>a</span>', '<span>b</span>');
-    const controller = new InspectorController({ overlay: false });
+    const controller = make({ overlay: false });
     controller.start();
     for (let i = 0; i < MAX_CAPTURED * 6; i++) {
       controller.onRecoverableError(new Error(`hydration failed ${i}`));
@@ -386,7 +418,7 @@ describe('retained state stays bounded', () => {
     seed(cells, clientCells);
 
     const onReport = vi.fn();
-    const controller = new InspectorController({
+    const controller = make({
       onReport,
       overlay: false,
       maxReports: 5,
