@@ -2,12 +2,13 @@
  * Text direction when the page's direction and the overlay's language differ.
  *
  * These pages set `dir` but no `lang` — a right-to-left page in a language the
- * overlay does not speak (Hebrew, Persian, Urdu…). The overlay then renders in
+ * overlay does not speak (Urdu, Yiddish…). The overlay then renders in
  * English, so it must stay left-to-right and not inherit the page's direction:
  * the CSS `all` shorthand deliberately excludes `direction`/`unicode-bidi` (per
  * spec), so `:host { all: initial }` alone would still let `direction: rtl`
- * leak into the shadow tree. Arabic pages, which get an Arabic right-to-left
- * panel, are covered in `test/overlay-rtl.test.ts`.
+ * leak into the shadow tree. Arabic, Hebrew and Persian pages, which get a
+ * right-to-left panel in their own language, are covered in
+ * `test/overlay-rtl.test.ts`.
  *
  * jsdom implements neither the shadow-DOM CSS cascade nor bidi layout, so these
  * assert the guarantees that *are* observable: the `dir` attribute on the host

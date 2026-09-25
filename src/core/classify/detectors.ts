@@ -212,31 +212,101 @@ export function isExtensionAttribute(name: string): boolean {
   );
 }
 
-const BLOCK_TAGS = new Set([
-  'DIV',
-  'P',
-  'SECTION',
-  'ARTICLE',
-  'UL',
-  'OL',
-  'LI',
-  'TABLE',
-  'HEADER',
-  'FOOTER',
-  'MAIN',
-  'ASIDE',
-  'NAV',
-  'H1',
-  'H2',
-  'H3',
-  'H4',
-  'H5',
-  'H6',
-  'FORM',
-  'BLOCKQUOTE',
-  'PRE',
-  'HR',
+/**
+ * Invalid nesting the HTML parser repairs.
+ *
+ * Server markup reaches the page through the parser, which enforces these
+ * rules by moving nodes: any of these tags closes an open `<p>` (so a `<div>`
+ * "inside" a `<p>` ends up after it, followed by a stray empty `<p>`),
+ * anchors, buttons and forms cannot nest, and table sections only hold rows.
+ * React builds the client DOM node by node, and nothing repairs it — so the
+ * same JSX yields two differently shaped trees. The diff uses this table to
+ * repair the client side the same way before comparing, and the classifier
+ * uses it to name the cause.
+ */
+const CLOSES_P = [
+  'address',
+  'article',
+  'aside',
+  'blockquote',
+  'center',
+  'details',
+  'dialog',
+  'dir',
+  'div',
+  'dl',
+  'fieldset',
+  'figcaption',
+  'figure',
+  'footer',
+  'form',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'header',
+  'hgroup',
+  'hr',
+  'li',
+  'dd',
+  'dt',
+  'listing',
+  'main',
+  'menu',
+  'nav',
+  'ol',
+  'p',
+  'plaintext',
+  'pre',
+  'search',
+  'section',
+  'summary',
+  'table',
+  'ul',
+  'xmp',
+];
+const CLOSES_P_SET = new Set(CLOSES_P.map((t) => t.toUpperCase()));
+const TABLE_CHILDREN = new Set([
+  'CAPTION',
+  'COLGROUP',
+  'THEAD',
+  'TBODY',
+  'TFOOT',
 ]);
+const TABLE_SCAFFOLD = ['script', 'template', 'style'];
+
+// Anything a table can hold at each level; the rest is foster-parented.
+const TABLE_LEVEL = ['caption', 'colgroup', 'thead', 'tbody', 'tfoot'];
+const SECTION_LEVEL = ['tr'];
+const ROW_LEVEL = ['td', 'th'];
+const notIn = (tags: string[]): string =>
+  `:not(${[...tags, ...TABLE_SCAFFOLD].join(', ')})`;
+
+/**
+ * For each tag, a selector matching descendants the parser would move out.
+ *
+ * Tables are matched as a whole: misplaced content inside a table is
+ * "foster-parented" out of the *entire* table, not just out of the section or
+ * row it sits in, so the repair can only be reproduced from the `<table>`
+ * down. The selectors are spelled out rather than using `:is()`, which older
+ * selector engines lack.
+ */
+export const PARSER_REPAIRS: Readonly<Record<string, string>> = {
+  P: CLOSES_P.join(', '),
+  A: 'a',
+  BUTTON: 'button',
+  FORM: 'form',
+  TABLE: [
+    `:scope > ${notIn([...TABLE_LEVEL, ...SECTION_LEVEL])}`,
+    ...['thead', 'tbody', 'tfoot'].flatMap((section) => [
+      `:scope > ${section} > ${notIn(SECTION_LEVEL)}`,
+      `:scope > ${section} > tr > ${notIn(ROW_LEVEL)}`,
+    ]),
+    `:scope > tr > ${notIn(ROW_LEVEL)}`,
+  ].join(', '),
+};
 
 export function isInvalidNesting(
   parentTag: string | undefined,
@@ -245,13 +315,22 @@ export function isInvalidNesting(
   if (!parentTag || !childTag) return false;
   const p = parentTag.toUpperCase();
   const c = childTag.toUpperCase();
-  if (p === 'P' && BLOCK_TAGS.has(c)) return true;
-  if (p === 'A' && c === 'A') return true;
-  if (p === 'BUTTON' && (c === 'BUTTON' || c === 'A')) return true;
-  if ((p === 'TABLE' || p === 'THEAD' || p === 'TBODY') && c === 'DIV') {
-    return true;
+  if (p === 'P') return CLOSES_P_SET.has(c);
+  if (p === 'A') return c === 'A';
+  // A link inside a button is not repaired by the parser, but it is invalid
+  // (interactive content inside interactive content) and React warns about it.
+  if (p === 'BUTTON') return c === 'BUTTON' || c === 'A';
+  if (p === 'FORM') return c === 'FORM';
+  if (p === 'TABLE') return !TABLE_CHILDREN.has(c) && !isScaffold(c);
+  if (p === 'THEAD' || p === 'TBODY' || p === 'TFOOT') {
+    return c !== 'TR' && !isScaffold(c);
   }
+  if (p === 'TR') return c !== 'TD' && c !== 'TH' && !isScaffold(c);
   return false;
+}
+
+function isScaffold(tag: string): boolean {
+  return TABLE_SCAFFOLD.includes(tag.toLowerCase());
 }
 
 export function messageIndicatesInvalidNesting(message?: string): boolean {

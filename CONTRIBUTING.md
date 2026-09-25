@@ -32,7 +32,8 @@ src/
     report.ts          ReportCollector: classify + dedupe + dispatch
     react-message.ts   parse React's console hydration warnings
   react/               <HydrationInspector>, overlay, console, controller
-    i18n.ts            overlay languages: the Arabic text, labels, plurals  ← and here
+    i18n.ts            overlay languages: English strings, lang detection
+    locales/           ar.ts, he.ts, fa.ts — each language's text and plurals  ← and here
   next/                Next.js adapters + snapshot <Script>
 test/                  vitest specs (acceptance table lives in acceptance.test.ts)
 ```
@@ -42,14 +43,16 @@ test/                  vitest specs (acceptance table lives in acceptance.test.t
 1. **Add the category** to `HydrationCauseCategory` in `src/core/types.ts`.
 2. **Add pure detectors** (if needed) to `src/core/classify/detectors.ts`, each
    with its own unit test in `test/classify.test.ts` or `test/*.test.ts`.
-3. **Write the words once, in both languages.** Add a message id to
+3. **Write the words once, in every language.** Add a message id to
    `MessageId` and its English text to `EN_MESSAGES` in
-   `src/core/classify/messages.ts`, then its Arabic text to `AR_MESSAGES` and
-   the category's label to both `categories` maps in `src/react/i18n.ts`. The
-   catalogs are typed against `MessageId`, so a missing translation is a
-   compile error, not a silent English fallback. In a template, put code in
-   backticks and page data in `{placeholders}` — the overlay isolates both so
-   they keep their own direction inside a right-to-left sentence.
+   `src/core/classify/messages.ts`, then the same message to each catalog in
+   `src/react/locales/` (`ar.ts`, `he.ts`, `fa.ts`), and the category's label
+   to every `categories` map. The catalogs are typed against `MessageId`, so a
+   missing translation is a compile error, not a silent English fallback. In a
+   template, put code in backticks and page data in `{placeholders}` — the
+   overlay isolates both so they keep their own direction inside a
+   right-to-left sentence. Persian uses the zero-width non-joiner (U+200C) in
+   words like «می‌کند» and the Persian letters ی and ک; the tests check both.
 4. **Write the rule** in `src/core/classify/rules.ts`. A rule is
    `(divergence: Divergence) => Cause | null` — return `null` to abstain. On a
    match return `{ category, confidence, ...describe('<message-id>', params),

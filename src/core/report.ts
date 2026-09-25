@@ -76,10 +76,21 @@ export class ReportCollector {
   private readonly seen = new Set<string>();
   private readonly sinks = new Set<ReportSink>();
   private readonly reports: HydrationReport[] = [];
-  private readonly maxReports: number;
-  private readonly options: CollectorOptions;
+  private maxReports: number;
+  private options: CollectorOptions;
 
   constructor(options: CollectorOptions = {}) {
+    this.options = options;
+    this.maxReports = options.maxReports ?? 25;
+  }
+
+  /**
+   * Swap the rules, threshold, ignore list and cap for everything reported
+   * from now on. Reports already collected are kept as they are: they were
+   * correct under the options in force when they were made, and re-deciding
+   * them would re-fire `onReport` for mismatches the caller already saw.
+   */
+  configure(options: CollectorOptions): void {
     this.options = options;
     this.maxReports = options.maxReports ?? 25;
   }

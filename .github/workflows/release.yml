@@ -14,6 +14,10 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # Secrets cannot be tested in a step's `if:` directly; exposing it here
+    # lets the steps below branch on whether automated publishing is set up.
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -23,7 +27,11 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: npm ci
       - run: npm run ci
+
+      # With an npm token: open a "Version Packages" PR for pending changesets,
+      # or publish when main is already versioned ahead of npm.
       - name: Create Release PR or publish to npm
+        if: env.NPM_TOKEN != ''
         uses: changesets/action@v1
         with:
           publish: npm run release
@@ -31,3 +39,22 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Without one, publishing is manual (`npm run release` locally). Still
+      # open the "Version Packages" PR for pending changesets, but never try to
+      # publish — that could only fail, and turned every merge red.
+      - name: Create Release PR (publishing is manual)
+        if: env.NPM_TOKEN == ''
+        uses: changesets/action@v1
+        with:
+          version: npm run version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Explain the skipped publish
+        if: env.NPM_TOKEN == ''
+        run: >
+          echo "::notice title=Publishing is manual::No NPM_TOKEN secret is
+          set, so this run did not publish. Publish with 'npm run release'
+          locally, or add an npm automation token as the NPM_TOKEN repository
+          secret to publish from CI."
