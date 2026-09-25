@@ -1,3 +1,4 @@
+import { PARSER_REPAIRS, isInvalidNesting } from './classify/detectors';
 import type { Divergence } from './types';
 
 const IGNORED_ATTRIBUTES = new Set<string>(['data-reactroot']);
@@ -64,9 +65,15 @@ function collectChildren(
 ): void {
   if (out.length >= limit) return;
   const serverChildren = meaningfulChildNodes(serverParent);
-  const clientChildren = meaningfulChildNodes(clientParent);
   const parentPending = hasPendingSuspense(serverParent);
   const parentTag = elementTag(clientParent);
+  const clientChildren = repairClientChildren(
+    meaningfulChildNodes(clientParent),
+    parentTag,
+    parentPath,
+    out,
+    limit,
+  );
   const pairs = alignChildren(serverChildren, clientChildren);
 
   let index = 0;
@@ -183,7 +190,7 @@ function collectNode(
         parentTagName: parentTag,
         server: serialize(serverEl),
         client: serialize(clientEl),
-        element: clientEl,
+        element: liveElement(clientEl),
       });
       return;
     }
@@ -220,7 +227,7 @@ function diffAttributes(
       attribute: name,
       server: serverValue,
       client: clientValue,
-      element: clientEl,
+      element: liveElement(clientEl),
     };
   }
   return null;
@@ -443,7 +450,119 @@ function serialize(node: Node): string {
 
 function asElement(node: Node | null | undefined): Element | null {
   if (!node) return null;
-  return node.nodeType === Node.ELEMENT_NODE ? (node as Element) : null;
+  return node.nodeType === Node.ELEMENT_NODE ? liveElement(node as Element) : null;
+}
+
+// ---- invalid nesting the parser repairs ----------------------------------
+//
+// The server snapshot went through the HTML parser, which repaired any invalid
+// nesting as it parsed: `<p><strong/><div/></p>` became `<p><strong/></p>`,
+// `<div/>`, `<p></p>`. React builds the client DOM node by node, so the live
+// tree keeps the invalid shape. Diffed as-is, one mistake surfaced as three
+// wrong reports — the ejected `<div>` as "removed", the stray `<p>` as
+// "removed", the nested `<div>` as "added" — and any real text change inside
+// it was never reported as one.
+//
+// So a client subtree the parser would repair is put through the parser first,
+// and the two sides are compared in the same, repaired shape. The nesting
+// itself is reported once, where it is. The repaired copy is detached, so each
+// of its elements is mapped back to its live counterpart: that keeps component
+// attribution and the `ignore` option working on the real node.
+
+const LIVE = new WeakMap<Node, Element>();
+
+function liveElement(el: Element): Element {
+  return LIVE.get(el) ?? el;
+}
+
+function repairClientChildren(
+  children: Node[],
+  parentTag: string | undefined,
+  parentPath: string,
+  out: Divergence[],
+  limit: number,
+): Node[] {
+  let repaired: Node[] | null = null;
+  children.forEach((child, i) => {
+    const expansion = repairedForm(child, parentTag);
+    if (!expansion) {
+      repaired?.push(child);
+      return;
+    }
+    repaired ??= children.slice(0, i);
+    repaired.push(...expansion.nodes);
+    if (out.length < limit) {
+      out.push({
+        kind: 'structure',
+        path: childPath(parentPath, child, i),
+        tagName: expansion.offender.tagName,
+        parentTagName: invalidParent(expansion.offender, child as Element),
+        // No values, on purpose: React reports the same nesting in its own
+        // warning with none, and matching it lets the two collapse into one.
+        server: null,
+        client: null,
+        element: expansion.offender,
+      });
+    }
+  });
+  return repaired ?? children;
+}
+
+// The element the offender may not be inside: the nearest ancestor, up to the
+// repaired element, for which the nesting is invalid. For `<p><span><div>`
+// that is the `<p>`, not the `<span>`; for a `<div>` in a `<tbody>` it is the
+// `<tbody>`, not the `<table>` the repair was run on.
+function invalidParent(offender: Element, top: Element): string {
+  for (let el = offender.parentElement; el; el = el.parentElement) {
+    if (isInvalidNesting(el.tagName, offender.tagName)) return el.tagName;
+    if (el === top) break;
+  }
+  return top.tagName;
+}
+
+function repairedForm(
+  node: Node,
+  parentTag: string | undefined,
+): { nodes: Node[]; offender: Element } | null {
+  if (node.nodeType !== Node.ELEMENT_NODE) return null;
+  const el = node as Element;
+  const selector = PARSER_REPAIRS[el.tagName];
+  if (!selector) return null;
+  let offender: Element | null = null;
+  try {
+    offender = el.querySelector(selector);
+  } catch {
+    return null;
+  }
+  if (!offender) return null;
+  const html = el.outerHTML;
+  const container = parseServerHtml(html, parentTag ?? 'div');
+  // Only if the parser really changes it: some matches are harmless in
+  // context, and then the live shape is already what the server would have.
+  if (container.innerHTML === html) return null;
+  const nodes = meaningfulChildNodes(container);
+  mapToLive(el, nodes);
+  return { nodes, offender };
+}
+
+// The parser keeps elements in document order and only changes their parents
+// (plus the empty `<p>` it synthesizes for a stray `</p>`), so walking both in
+// order and pairing equal tags recovers the live node for each repaired one.
+function mapToLive(live: Element, repaired: Node[]): void {
+  const liveEls = [live, ...Array.from(live.querySelectorAll('*'))];
+  let i = 0;
+  for (const root of repaired) {
+    if (root.nodeType !== Node.ELEMENT_NODE) continue;
+    const el = root as Element;
+    for (const r of [el, ...Array.from(el.querySelectorAll('*'))]) {
+      let j = i;
+      while (j < liveEls.length && liveEls[j]!.tagName !== r.tagName) j++;
+      if (j < liveEls.length) {
+        LIVE.set(r, liveEls[j]!);
+        i = j + 1;
+      }
+    }
+  }
 }
 
 function elementTag(node: Node): string | undefined {

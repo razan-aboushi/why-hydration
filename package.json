@@ -1,6 +1,6 @@
 {
   "name": "why-hydration",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Find which React component broke hydration, what differed, and how to fix it — for Next.js, Remix and Vite, React 18 and 19. Dev-only, zero production cost.",
   "license": "MIT",
   "author": "Razan Aboushi (https://www.linkedin.com/in/razan-aboushi/)",

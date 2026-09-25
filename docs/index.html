@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>why-hydration — find which React component broke hydration</title>
+<meta name="description" content="A dev-only React hydration mismatch debugger for Next.js, Remix and Vite. Names the component, shows the server and client values side by side, and explains the cause and the fix. React 18 and 19, Arabic/Hebrew/Persian RTL overlay, zero production cost.">
+<link rel="canonical" href="https://razan-aboushi.github.io/why-hydration/">
+<meta name="robots" content="index, follow">
+<meta name="theme-color" content="#0b0f17">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="why-hydration">
+<meta property="og:title" content="why-hydration — find which React component broke hydration">
+<meta property="og:description" content="Names the component, shows server vs client values, and explains the cause and the fix. Next.js, Remix, Vite · React 18 & 19 · zero production cost.">
+<meta property="og:url" content="https://razan-aboushi.github.io/why-hydration/">
+<meta property="og:image" content="https://razan-aboushi.github.io/why-hydration/screenshots/cause-locale-format.png">
+<meta property="og:image:alt" content="A why-hydration report: a locale-format mismatch between Arabic-Indic and Latin digits, with the cause and the fix">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="why-hydration — find which React component broke hydration">
+<meta name="twitter:description" content="A dev-only React hydration mismatch debugger for Next.js, Remix and Vite.">
+<meta name="twitter:image" content="https://razan-aboushi.github.io/why-hydration/screenshots/cause-locale-format.png">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareSourceCode",
+  "name": "why-hydration",
+  "description": "A dev-only React hydration mismatch debugger for Next.js, Remix and Vite. Names the component, shows the server and client values, and explains the cause and the fix.",
+  "codeRepository": "https://github.com/razan-aboushi/why-hydration",
+  "url": "https://razan-aboushi.github.io/why-hydration/",
+  "programmingLanguage": ["TypeScript", "JavaScript"],
+  "runtimePlatform": "React 18, React 19",
+  "license": "https://opensource.org/licenses/MIT",
+  "author": { "@type": "Person", "name": "Razan Aboushi", "url": "https://www.linkedin.com/in/razan-aboushi/" },
+  "keywords": "react, hydration, hydration error, hydration mismatch, nextjs, remix, vite, ssr, react 19, rtl, arabic"
+}
+</script>
+
+<style>
+  :root {
+    --bg: #ffffff; --fg: #0f172a; --muted: #475569; --line: #e2e8f0;
+    --card: #f8fafc; --accent: #d97706; --code-bg: #0b0f17; --code-fg: #e5e7eb;
+    --link: #2563eb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b0f17; --fg: #e5e7eb; --muted: #94a3b8; --line: #1f2937;
+      --card: #111827; --accent: #f59e0b; --code-bg: #05080d; --code-fg: #e5e7eb;
+      --link: #60a5fa;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 17px/1.65 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Tahoma, sans-serif;
+  }
+  main { max-width: 860px; margin: 0 auto; padding: 48px 20px 80px; }
+  header { margin-bottom: 40px; }
+  h1 { font-size: clamp(2rem, 5vw, 2.8rem); line-height: 1.15; margin: 0 0 12px; letter-spacing: -.02em; }
+  h1 .name { color: var(--accent); }
+  h2 { font-size: 1.45rem; margin: 48px 0 12px; }
+  h3 { font-size: 1.1rem; margin: 28px 0 8px; }
+  p.lead { font-size: 1.15rem; color: var(--muted); margin: 0 0 24px; }
+  a { color: var(--link); }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 24px 0; }
+  .actions a {
+    display: inline-block; padding: 10px 16px; border-radius: 8px; text-decoration: none;
+    border: 1px solid var(--line); background: var(--card); color: var(--fg); font-weight: 600;
+  }
+  .actions a.primary { background: var(--accent); border-color: var(--accent); color: #111827; }
+  pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  pre {
+    background: var(--code-bg); color: var(--code-fg); padding: 16px 18px; border-radius: 10px;
+    overflow-x: auto; font-size: .88rem; line-height: 1.55; margin: 12px 0;
+  }
+  p code, li code { background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: .9em; }
+  figure { margin: 24px 0; }
+  figure img { width: min(100%, 440px); height: auto; border-radius: 12px; border: 1px solid var(--line); display: block; margin: 0 auto; }
+  figcaption { color: var(--muted); font-size: .9rem; text-align: center; margin-top: 8px; }
+  ul.features { padding-left: 1.2em; }
+  ul.features li { margin: 6px 0; }
+  .errors pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .rtl { border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; background: var(--card); }
+  footer { margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--line); color: var(--muted); font-size: .9rem; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1><span class="name">why-hydration</span> — find which React component broke hydration</h1>
+    <p class="lead">A development-only debugger for React hydration mismatches in Next.js, Remix, Vite and any app that hydrates server-rendered HTML. It names the component, shows the server and client values side by side, and tells you the likely cause and the fix — with zero production cost.</p>
+    <div class="actions">
+      <a class="primary" href="https://github.com/razan-aboushi/why-hydration#quick-setup">Get started</a>
+      <a href="https://www.npmjs.com/package/why-hydration">npm</a>
+      <a href="https://github.com/razan-aboushi/why-hydration">GitHub</a>
+    </div>
+    <pre><code>npm install --save-dev why-hydration</code></pre>
+  </header>
+
+  <figure>
+    <img src="screenshots/overlay-hero.png" width="1016" height="2300" loading="eager" alt="why-hydration overlay listing classified React hydration mismatches with component names">
+    <figcaption>Every mismatch on the page, with its component, the server and client values, the cause and the fix.</figcaption>
+  </figure>
+
+  <h2>What it tells you</h2>
+  <ul class="features">
+    <li><strong>Where</strong> — the component name and, when your build includes it, the source file and line, plus the DOM path.</li>
+    <li><strong>What</strong> — the server-rendered value and the client-rendered value, side by side.</li>
+    <li><strong>Why</strong> — the likely cause: non-deterministic values, dates and time zones, locale formatting, browser-only APIs, viewport branching, invalid HTML nesting, whitespace, third-party DOM changes, or attribute mismatches.</li>
+    <li><strong>The fix</strong> — a specific suggestion, with a link to a fuller explanation.</li>
+    <li><strong>All of them, once</strong> — every mismatch on the page, deduplicated, with third-party noise (ads, consent banners, extensions) filtered out.</li>
+  </ul>
+
+  <h2>Searching for this error?</h2>
+  <div class="errors">
+    <p>If you landed here from one of these messages, this is the tool for it. Each is quoted exactly as React prints it, and why-hydration recognizes every one.</p>
+    <h3>React 19 (and Next.js 15+)</h3>
+    <pre>Hydration failed because the server rendered text didn't match the client. As a result this tree will be regenerated on the client.
+Hydration failed because the server rendered HTML didn't match the client. As a result this tree will be regenerated on the client.
+A tree hydrated but some attributes of the server rendered HTML didn't match the client properties. This won't be patched up.
+In HTML, &lt;div&gt; cannot be a descendant of &lt;p&gt;. This will cause a hydration error.</pre>
+    <h3>React 18 (and Next.js 13–14)</h3>
+    <pre>Hydration failed because the initial UI does not match what was rendered on the server.
+There was an error while hydrating. Because the error happened outside of a Suspense boundary, the entire root will switch to client rendering.
+There was an error while hydrating this Suspense boundary. Switched to client rendering.
+Text content does not match server-rendered HTML.
+Warning: Text content did not match. Server: "…" Client: "…"
+Warning: Prop `className` did not match. Server: "…" Client: "…"
+Warning: Expected server HTML to contain a matching &lt;div&gt; in &lt;div&gt;.
+Warning: Did not expect server HTML to contain a &lt;div&gt; in &lt;div&gt;.
+Warning: validateDOMNesting(...): &lt;div&gt; cannot appear as a descendant of &lt;p&gt;.</pre>
+  </div>
+
+  <h2>Set it up in Next.js</h2>
+  <pre><code>// app/layout.tsx
+import { HydrationSnapshotScript } from 'why-hydration/next/script';
+import { HydrationInspector } from 'why-hydration/next';
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    &lt;html&gt;
+      &lt;head&gt;
+        {process.env.NODE_ENV !== 'production' &amp;&amp; &lt;HydrationSnapshotScript /&gt;}
+      &lt;/head&gt;
+      &lt;body&gt;
+        &lt;HydrationInspector&gt;{children}&lt;/HydrationInspector&gt;
+      &lt;/body&gt;
+    &lt;/html&gt;
+  );
+}</code></pre>
+  <p>Vite, CRA, Remix and custom <code>hydrateRoot</code> setups use <code>createHydrationInspector()</code> — see the <a href="https://github.com/razan-aboushi/why-hydration#quick-setup">full setup guide</a>.</p>
+
+  <h2>Arabic, Hebrew and Persian, right-to-left</h2>
+  <p>On a page whose <code>&lt;html lang&gt;</code> is Arabic, Hebrew or Persian, the overlay speaks that language and is laid out right-to-left. Every other page gets English. Page data always renders in its own direction, so an Arabic price keeps its punctuation at the end even in the English panel, and invisible bidi marks — a common cause of mismatches in RTL apps — are shown instead of hidden.</p>
+  <div class="rtl" dir="rtl" lang="ar">عدم تطابق في الـ Hydration — يعرض المكوّن المسؤول، وقيمتَي الخادم والعميل، والسبب، والحل.</div>
+
+  <h2>Zero production cost</h2>
+  <p>Every code path is gated behind <code>process.env.NODE_ENV</code>, so production builds tree-shake it to a pass-through component: about 99 bytes, enforced by a size budget in CI.</p>
+
+  <footer>
+    <p>MIT licensed · by <a href="https://www.linkedin.com/in/razan-aboushi/">Razan Aboushi</a> · <a href="https://github.com/razan-aboushi/why-hydration">Source on GitHub</a> · <a href="https://www.npmjs.com/package/why-hydration">Package on npm</a></p>
+  </footer>
+</main>
+</body>
+</html>

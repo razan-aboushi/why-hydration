@@ -24,8 +24,17 @@ export function InspectorImpl(
   // fresh hook state — starts it once instead of leaving a stray interceptor.
   startCapture();
 
-  const optionsRef = React.useRef<InspectorOptions>({});
-  optionsRef.current = { overlay, onReport, ignore, classify, maxReports };
+  const options: InspectorOptions = {
+    overlay,
+    onReport,
+    ignore,
+    classify,
+    maxReports,
+  };
+  // Seeded from the first render and kept current by the effect below — not
+  // written during render, which React may discard or repeat.
+  const optionsRef = React.useRef(options);
+  const controllerRef = React.useRef<InspectorController | null>(null);
 
   React.useEffect(() => {
     // Everything stateful is owned by the effect so React controls its
@@ -33,9 +42,22 @@ export function InspectorImpl(
     // controller, fully torn down and fully rebuilt, and the messages React
     // already logged are replayed to it from the capture backlog.
     const controller = new InspectorController(optionsRef.current);
+    controllerRef.current = controller;
     controller.start();
-    return () => controller.stop();
+    return () => {
+      controller.stop();
+      if (controllerRef.current === controller) controllerRef.current = null;
+    };
   }, []);
+
+  // Props that change after mount reach the running controller instead of
+  // being ignored until a reload. The controller compares what matters, so
+  // inline values re-created on every render cost nothing.
+  React.useEffect(() => {
+    optionsRef.current = options;
+    controllerRef.current?.update(options);
+    // `options` is rebuilt every render; its parts are the real dependencies.
+  }, [overlay, onReport, ignore, classify, maxReports]);
 
   return React.createElement(React.Fragment, null, children);
 }

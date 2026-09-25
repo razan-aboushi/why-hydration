@@ -1,6 +1,47 @@
 # Changelog
 
-## 0.2.1
+## 0.3.0
+
+### Minor Changes
+
+- Hebrew and Persian overlays, live prop updates, one report per invalid nesting.
+
+  **Hebrew and Persian**
+
+  - Pages whose `<html lang>` is Hebrew (`he`, `iw`) or Persian (`fa`, `prs`,
+    `pes`) now get the overlay in that language, right-to-left, alongside the
+    Arabic one. `overlay={{ locale }}` accepts `'he'` and `'fa'` too. Other
+    right-to-left languages, such as Urdu, keep the English left-to-right panel.
+
+  **`<HydrationInspector>` props apply while the app runs**
+
+  - Props were read once, at mount, and later changes were ignored until a
+    reload. Now a new `onReport` receives the next report, a new `overlay`
+    (on/off, `position`, `locale`) rebuilds the panel with the reports so far,
+    and new `ignore`, `classify` and `maxReports` apply from then on. Inline
+    values re-created on every render do not rebuild anything.
+
+  **Invalid HTML nesting is one report**
+
+  - A `<div>` inside a `<p>` used to surface as three wrongly labelled reports
+    ("browser-only API", "viewport branching" twice) next to React's own
+    warning, and a real text change inside it was never reported as one. The
+    browser repairs the server's HTML while parsing it, but React builds the
+    client DOM node by node, so the client side is now repaired the same way
+    before comparing. The nesting is one report at the misplaced element, and a
+    text difference inside it is its own report. Covers block elements in `<p>`,
+    nested `<a>`/`<button>`/`<form>`, and table content outside its section or
+    row, which the parser moves out of the whole table.
+
+  **Other fixes**
+
+  - A `roots` selector that matches nothing on the page — usually a typo — is
+    warned about once the settling window closes, instead of being skipped
+    silently.
+  - The Release workflow no longer fails on every merge when no `NPM_TOKEN` is
+    set: it skips publishing with a notice and still opens version PRs.
+  - A GitHub Pages site (`docs/`) with search metadata, structured data and a
+    sitemap. A test keeps its error list identical to the README's.
 
 ### Patch Changes
 
@@ -14,7 +55,7 @@
     Next.js, React 18 and 19, "hydration failed", "text content does not match",
     `suppressHydrationWarning`, RTL and Arabic.
 
-  No code changes.
+  No code changes to this part.
 
 ## 0.2.0
 

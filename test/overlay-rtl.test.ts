@@ -29,7 +29,7 @@ import { resetCapture } from '../src/react/capture';
 import { SNAPSHOT_KEY, type Snapshot } from '../src/core/snapshot';
 import type { Cause, Divergence, HydrationReport } from '../src/core/types';
 
-const ARABIC = /[؀-ۿ]/;
+const ARABIC = /[\u0600-\u06ff]/;
 
 let n = 0;
 function reportFor(
@@ -104,10 +104,18 @@ describe('which language the overlay speaks', () => {
     ['en', 'en'],
     ['en-US', 'en'],
     ['fr', 'en'],
+    ['he', 'he'],
+    ['he-IL', 'he'],
+    // The pre-1989 Hebrew code, which some systems still emit.
+    ['iw', 'he'],
+    ['fa', 'fa'],
+    ['fa-IR', 'fa'],
+    // Dari and the Iranian Persian code.
+    ['prs', 'fa'],
+    ['pes', 'fa'],
     // Right-to-left, but not a language the overlay translates.
-    ['he', 'en'],
-    ['fa', 'en'],
     ['ur', 'en'],
+    ['yi', 'en'],
     // Must not be mistaken for Arabic by a loose prefix match.
     ['arn', 'en'],
     ['', 'en'],
@@ -134,9 +142,9 @@ describe('which language the overlay speaks', () => {
     expect(resolveLocale('fr')).toBe('en');
   });
 
-  it('ignores the page direction — dir alone does not make a page Arabic', () => {
+  it('ignores the page direction — dir alone does not pick a language', () => {
     document.documentElement.setAttribute('dir', 'rtl');
-    document.documentElement.setAttribute('lang', 'he');
+    document.documentElement.setAttribute('lang', 'ur');
     expect(resolveLocale()).toBe('en');
   });
 });
@@ -880,5 +888,160 @@ describe('the component a stack names', () => {
     controller.inspectNow();
     expect(onReport.mock.calls[0]![0].component).toBeUndefined();
     controller.stop();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hebrew and Persian.
+
+const HEBREW = /[\u05d0-\u05ea]/;
+const PERSIAN = /[\u0600-\u06ff]/;
+
+describe.each([
+  ['he', HEBREW, 'אי-התאמה ב-Hydration', 'סגירה', ['שרת', 'לקוח'], 'תיקון:'],
+  [
+    'fa',
+    PERSIAN,
+    'ناهمخوانی در Hydration',
+    'بستن',
+    ['سرور', 'کلاینت'],
+    'راه‌حل:',
+  ],
+] as const)('the %s panel', (lang, script, title, dismiss, labels, fix) => {
+  const report = reportFor(text('١٢٣٤', '1234'));
+
+  it('is right-to-left and declared in its language', () => {
+    const { panel, destroy } = mount(lang, report);
+    expect(panel.getAttribute('dir')).toBe('rtl');
+    expect(panel.getAttribute('lang')).toBe(lang);
+    destroy();
+  });
+
+  it('translates the chrome', () => {
+    const { shadow, card, destroy } = mount(lang, report);
+    expect(shadow.querySelector('.wh-title')!.textContent).toBe(title);
+    expect(shadow.querySelector('.wh-btn')!.textContent).toBe(dismiss);
+    expect(
+      [...card.querySelectorAll('.wh-label')].map((l) => l.textContent),
+    ).toEqual([...labels]);
+    expect(card.querySelector('.wh-fix strong')!.textContent).toBe(fix);
+    expect(card.querySelector('.wh-cat')!.textContent).toMatch(script);
+    destroy();
+  });
+
+  it.each(VARIANTS)(`renders %s in ${lang}`, (id, divergence) => {
+    const r = reportFor(divergence);
+    expect(r.cause.messageId).toBe(id);
+    const { card, destroy } = mount(lang, r);
+    for (const selector of ['.wh-explain', '.wh-fix > span']) {
+      const node = card.querySelector(selector)!;
+      expect(node.getAttribute('dir')).toBe('rtl');
+      expect(node.textContent).toMatch(script);
+      expect(node.textContent).not.toMatch(/\{\w+\}|`/);
+    }
+    destroy();
+  });
+
+  it('can be forced on an English page', () => {
+    const { panel, destroy } = mount('en', report, { locale: lang });
+    expect(panel.getAttribute('dir')).toBe('rtl');
+    expect(panel.getAttribute('lang')).toBe(lang);
+    destroy();
+  });
+
+  it('covers every message and category', () => {
+    expect(Object.keys(OVERLAY_STRINGS[lang].messages).sort()).toEqual(
+      Object.keys(EN_MESSAGES).sort(),
+    );
+    for (const label of Object.values(OVERLAY_STRINGS[lang].categories)) {
+      expect(label).toMatch(script);
+    }
+  });
+});
+
+describe('plurals in the scroll hint', () => {
+  const hint = (lang: 'he' | 'fa', count: number) =>
+    OVERLAY_STRINGS[lang].hint(count);
+
+  it.each([
+    [1, 'בעיה אחת'],
+    [2, 'שתי בעיות'],
+    [4, '4 בעיות'],
+    [11, '11 בעיות'],
+    [20, '20 בעיות'],
+  ])('Hebrew %i', (count, expected) => {
+    expect(hint('he', count)).toBe(`↓ ${expected} — גללו כדי לראות הכול`);
+  });
+
+  it.each([
+    [1, 'یک مشکل'],
+    [4, '4 مشکل'],
+    [25, '25 مشکل'],
+  ])('Persian %i', (count, expected) => {
+    expect(hint('fa', count)).toBe(`↓ ${expected} — برای دیدن همه اسکرول کنید`);
+  });
+});
+
+describe('each script is spelled with its own letters', () => {
+  const allText = (lang: 'ar' | 'he' | 'fa'): string => {
+    const t = OVERLAY_STRINGS[lang];
+    const params = {
+      attribute: 'x',
+      server: 's',
+      client: 'c',
+      tag: '<i>',
+      added: ['a'],
+      removed: ['b'],
+    };
+    const parts = Object.values(t.messages).flatMap((m) =>
+      [m.explanation, m.suggestion].map((tpl) =>
+        plainText(renderMessage(tpl, params)),
+      ),
+    );
+    return [
+      ...parts,
+      ...Object.values(t.categories),
+      t.title,
+      t.dialogLabel,
+      t.dismiss,
+      t.dismissLabel,
+      t.hintDismissLabel,
+      t.server,
+      t.client,
+      t.fix,
+      t.learnMore,
+      t.none,
+      t.empty,
+      t.hint(5),
+    ].join('\n');
+  };
+
+  it('Persian uses ی and ک, never the Arabic ي and ك', () => {
+    const fa = allText('fa');
+    expect(fa).not.toMatch(/[\u064a\u0643]/);
+    expect(fa).toMatch(/ی/);
+    expect(fa).toMatch(/ک/);
+  });
+
+  it('Persian joins its prefixes and suffixes with a zero-width non-joiner', () => {
+    const fa = allText('fa');
+    // «می‌کند», never «می کند» or «میکند».
+    expect(fa).toContain('می‌کند');
+    expect(fa).not.toMatch(/(?:^|\s)می /);
+    expect(fa).toContain('راه‌حل');
+  });
+
+  it('Arabic uses ي and ك, never the Persian ی and ک', () => {
+    const ar = allText('ar');
+    expect(ar).not.toMatch(/[\u06cc\u06a9]/);
+  });
+
+  it('Hebrew is written in Hebrew letters', () => {
+    expect(allText('he')).toMatch(HEBREW);
+    // No Arabic letters. Arabic-Indic digits are allowed: the digit-script
+    // explanation shows `٠١٢` on purpose, in every language.
+    expect(allText('he')).not.toMatch(
+      /[\u0620-\u064a\u066e-\u06d3\u06fa-\u06ff]/,
+    );
   });
 });

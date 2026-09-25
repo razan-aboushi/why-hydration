@@ -19,8 +19,9 @@ export interface OverlayOptions {
   position?: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
   /**
    * Language of the panel. `'auto'` (the default) follows the page's
-   * `<html lang>`: an Arabic page gets an Arabic, right-to-left panel and
-   * every other page gets English. Pass `'en'` or `'ar'` to pin it.
+   * `<html lang>`: Arabic, Hebrew and Persian pages get the panel in that
+   * language, laid out right-to-left, and every other page gets English.
+   * Pass `'en'`, `'ar'`, `'he'` or `'fa'` to pin it.
    */
   locale?: 'auto' | OverlayLocale;
 }

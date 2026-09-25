@@ -7,7 +7,7 @@
 [![node: >=18](https://img.shields.io/node/v/why-hydration)](#install)
 [![license: MIT](https://img.shields.io/npm/l/why-hydration.svg)](LICENSE)
 
-📦 **npm:** https://www.npmjs.com/package/why-hydration &nbsp;·&nbsp; 🐙 **GitHub:** https://github.com/razan-aboushi/why-hydration &nbsp;·&nbsp; 💼 **Author:** [Razan Aboushi](https://www.linkedin.com/in/razan-aboushi/)
+🌐 **Site:** https://razan-aboushi.github.io/why-hydration/ &nbsp;·&nbsp; 📦 **npm:** https://www.npmjs.com/package/why-hydration &nbsp;·&nbsp; 🐙 **GitHub:** https://github.com/razan-aboushi/why-hydration &nbsp;·&nbsp; 💼 **Author:** [Razan Aboushi](https://www.linkedin.com/in/razan-aboushi/)
 
 **Tells you which component broke hydration, what differed, and how to fix it — in dev, with zero production cost.**
 
@@ -60,9 +60,9 @@ together.
   incidental page noise.
 - 🌐 **Arabic-first locale detection** — digit-script mismatches (٠١٢ vs 012)
   are a first-class cause, not an afterthought.
-- 🔤 **Speaks Arabic, right-to-left** — on an Arabic page (`<html lang="ar">`)
-  the overlay is in Arabic and laid out right-to-left; everywhere else it is in
-  English. Page data renders in its own direction in both, and invisible bidi
+- 🔤 **Speaks Arabic, Hebrew and Persian, right-to-left** — on a page whose
+  `<html lang>` is one of those, the overlay is in that language and laid out
+  right-to-left; everywhere else it is in English. Page data renders in its own direction in both, and invisible bidi
   marks are shown instead of hidden.
 - 🫧 **Zero production cost** — every code path is gated behind
   `process.env.NODE_ENV`, and CI fails the build if the production bundle for
@@ -372,7 +372,7 @@ A page with no mismatches renders **nothing** — no overlay, no console output.
 | **✕** on the hint bar | Closes just the "scroll to see all" hint; the panel stays. |
 | `overlay={false}` | Never mounts it at all — `onReport` and the console output still work. |
 | `overlay={{ position }}` | `bottom-right` (default), `bottom-left`, `top-right`, `top-left`. |
-| `overlay={{ locale }}` | `'auto'` (default) follows `<html lang>`; `'en'` or `'ar'` pins the language. See [RTL and Arabic support](#rtl-and-arabic-support). |
+| `overlay={{ locale }}` | `'auto'` (default) follows `<html lang>`; `'en'`, `'ar'`, `'he'` or `'fa'` pins the language. See [RTL and Arabic support](#rtl-and-arabic-support). |
 
 The overlay is a *view* over the collected reports, not the collector itself:
 dismissing it does not stop detection, and `onReport` keeps firing. If a
@@ -402,19 +402,27 @@ there are more than fit:
 
 ## RTL and Arabic support
 
-An Arabic app gets the same diagnosis quality as an English one. That covers
-both how the overlay renders and what the engine can actually detect.
+An Arabic, Hebrew or Persian app gets the same diagnosis quality as an English
+one. That covers both how the overlay renders and what the engine can actually
+detect.
 
 ### The overlay
 
 **The overlay speaks the page's language.** On a page whose `<html lang>` is
-Arabic (`ar`, `ar-SA`, `ar-EG`, …) the whole panel is in Arabic and laid out
+Arabic, Hebrew or Persian, the whole panel is in that language and laid out
 right-to-left: title, buttons, category names, the explanation, the fix, and
-the scroll hint, with correct Arabic plurals. Every other page gets the English
-panel — including right-to-left pages in languages the overlay does not
-translate, such as Hebrew or Persian, where it stays left-to-right rather than
-mirroring English text. Pin it either way with `overlay={{ locale: 'en' }}` or
-`overlay={{ locale: 'ar' }}`.
+the scroll hint, with each language's plural rules.
+
+| `<html lang>` | Overlay |
+| ------------- | ------- |
+| `ar`, `ar-SA`, `ar-EG`, … and regional varieties (`arz`, `ary`, …) | Arabic |
+| `he`, `he-IL`, and the legacy `iw` | Hebrew |
+| `fa`, `fa-IR`, `fa-AF`, and `prs` (Dari), `pes` | Persian |
+| anything else — including other right-to-left languages such as Urdu | English, left-to-right |
+
+An untranslated right-to-left page keeps the English panel left-to-right rather
+than mirroring English text. Pin the language either way with
+`overlay={{ locale: 'en' }}`, `'ar'`, `'he'` or `'fa'`.
 
 What stays English: the console output, and `cause.explanation` /
 `cause.suggestion` in the report `onReport` receives. Those are what people log,
@@ -522,6 +530,14 @@ Wrap your app (or, for Next.js, use the `why-hydration/next` re-export).
 | `classify`   | `Classifier[]`                                  | `[]`          | Custom classification rules, run **before** the built-in ones. |
 | `maxReports` | `number`                                        | `25`          | Cap on the number of unique reports collected per page load. |
 
+Props can change while the app is running, and take effect without a reload:
+a new `onReport` receives the next report; a new `overlay` (switched on or off,
+or a different `position` or `locale`) rebuilds the panel with the reports so
+far; new `ignore`, `classify` or `maxReports` apply to everything reported from
+then on. Reports already made are kept as they were. Inline values that are
+re-created on every render, such as `overlay={{ position: 'top-left' }}`, do
+not rebuild anything unless they actually change.
+
 ### `createHydrationInspector(options)`
 
 For Vite/CRA/Remix, where you call `hydrateRoot` yourself. Accepts the same
@@ -552,7 +568,7 @@ effect setup → cleanup → setup.
 ```ts
 interface OverlayOptions {
   position?: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left'; // default 'bottom-right'
-  locale?: 'auto' | 'en' | 'ar'; // default 'auto' — follows <html lang>
+  locale?: 'auto' | 'en' | 'ar' | 'he' | 'fa'; // default 'auto' — follows <html lang>
 }
 ```
 
@@ -727,6 +743,16 @@ JavaScript.
 A node was moved or ejected because the markup is invalid HTML (e.g. a `<div>`
 inside a `<p>`, or a nested `<a>`). The browser repairs the server-rendered DOM
 so it no longer matches what React expects.
+
+It is reported **once**, at the element that is misplaced. The browser repairs
+the server's HTML while parsing it, but React builds the client DOM node by
+node, so nothing repairs that side — and compared as-is, one invalid `<div>`
+used to surface as three unrelated reports. The client side is now put through
+the same parser repair before comparing, so the nesting shows up as a single
+report, and any real text difference inside it still shows up as its own.
+Covered: block elements inside `<p>`, nested `<a>`, `<button>` and `<form>`,
+and table content outside its section or row (which the parser moves out of
+the whole table).
 **Fix:** correct the markup validity — block elements cannot live inside
 `<p>`, anchors cannot nest, etc.
 **Reference:** [MDN — `<p>` (permitted content)](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/p).
@@ -863,9 +889,11 @@ snapshot script is present in `<head>` and runs before your app's hydration
 script. Without the snapshot script, the tool still reports mismatches it can
 parse from React's own console warning, but loses the precise DOM-level diff.
 If you passed `roots`, check the console for a
-`[why-hydration] Skipping root:` warning — a root with no captured server HTML
-can never produce a DOM-level report, and it says so rather than failing
-silently.
+`[why-hydration] Skipping root:` warning. There are three: a selector that is
+not valid CSS, a root with no captured server HTML (it can never produce a
+DOM-level report), and a selector that matches nothing on the page — usually a
+typo. The last is only raised once the settling window has closed, so a root
+rendered a moment after hydration is not reported by mistake.
 
 **Does it work under `<React.StrictMode>`?** Yes. Strict Mode runs every mount
 effect setup → cleanup → setup in development, which tears the inspector down
@@ -904,14 +932,18 @@ right after hydration, then stops.
 
 **Does it work with `<html dir="rtl">`?** Yes — see
 [RTL and Arabic support](#rtl-and-arabic-support). The panel's language follows
-`<html lang>`, not `dir`: an Arabic page gets the Arabic right-to-left panel,
-and a right-to-left page in another language gets the English left-to-right
-one. Detection covers Arabic-script formatting mismatches on both sides, not
-just Arabic-vs-Latin.
+`<html lang>`, not `dir`: an Arabic, Hebrew or Persian page gets the panel in
+that language, right-to-left, and a right-to-left page in another language gets
+the English left-to-right one. Detection covers Arabic-script formatting
+mismatches on both sides, not just Arabic-vs-Latin.
 
 **I want the English panel on my Arabic site (or the reverse).** Pass
-`overlay={{ locale: 'en' }}` (or `'ar'`). The console and `onReport` are English
-either way.
+`overlay={{ locale: 'en' }}` (or `'ar'`, `'he'`, `'fa'`). The console and
+`onReport` are English either way.
+
+**I changed a `<HydrationInspector>` prop and nothing happened.** Fixed —
+props used to be read once, at mount. They now apply while the app runs; see
+[`<HydrationInspector>`](#hydrationinspector).
 
 **My Arabic app reports a mismatch between two values that look the same.** They
 differ by invisible bidirectional control characters — `Intl` adds LRM/RLM/isolate
