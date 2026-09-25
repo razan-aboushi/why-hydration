@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.1
+
+### Patch Changes
+
+- Make the package easier to find.
+
+  - The README has a "Searching for this error?" section quoting React's
+    hydration error messages exactly as React 18 and React 19 print them, so a
+    search for the error leads here. A test reads the list back out of the
+    README and checks the package recognizes every message on it.
+  - The npm description and keywords now cover the terms people search for:
+    Next.js, React 18 and 19, "hydration failed", "text content does not match",
+    `suppressHydrationWarning`, RTL and Arabic.
+
+  No code changes.
+
 ## 0.2.0
 
 ### Minor Changes

@@ -79,6 +79,7 @@ Supports **React 18 and 19**.
 - [Install](#install)
 - [Quick setup](#quick-setup)
 - [What is a hydration mismatch](#what-is-a-hydration-mismatch)
+  - [Searching for this error?](#searching-for-this-error)
 - [What why-hydration detects](#what-why-hydration-detects)
 - [How detection works](#how-detection-works)
 - [What you will see](#what-you-will-see)
@@ -237,6 +238,37 @@ on the server, or formatting that differs because the server and client
 resolved a different locale or timezone. React logs a warning to the console
 when it detects this and, depending on what mismatched, may or may not repair
 the DOM to match. `why-hydration` exists to make that warning actionable.
+
+### Searching for this error?
+
+If you landed here from one of these messages, this is the tool for it. Each
+is quoted exactly as React prints it, and `why-hydration` recognizes every one.
+With the [snapshot script](#quick-setup) in place it also names the component,
+shows the server and client values side by side — including for the messages
+that carry no values of their own — and tells you the likely cause and fix.
+
+**React 19** (and Next.js 15+, which uses it):
+
+```text
+Hydration failed because the server rendered text didn't match the client. As a result this tree will be regenerated on the client.
+Hydration failed because the server rendered HTML didn't match the client. As a result this tree will be regenerated on the client.
+A tree hydrated but some attributes of the server rendered HTML didn't match the client properties. This won't be patched up.
+In HTML, <div> cannot be a descendant of <p>. This will cause a hydration error.
+```
+
+**React 18** (and Next.js 13–14):
+
+```text
+Hydration failed because the initial UI does not match what was rendered on the server.
+There was an error while hydrating. Because the error happened outside of a Suspense boundary, the entire root will switch to client rendering.
+There was an error while hydrating this Suspense boundary. Switched to client rendering.
+Text content does not match server-rendered HTML.
+Warning: Text content did not match. Server: "…" Client: "…"
+Warning: Prop `className` did not match. Server: "…" Client: "…"
+Warning: Expected server HTML to contain a matching <div> in <div>.
+Warning: Did not expect server HTML to contain a <div> in <div>.
+Warning: validateDOMNesting(...): <div> cannot appear as a descendant of <p>.
+```
 
 ---
 
