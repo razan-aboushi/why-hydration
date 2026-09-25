@@ -118,7 +118,7 @@ describe('overlay', () => {
   // browser with a live dir="rtl" page. jsdom does not implement shadow-DOM CSS
   // cascade, so it cannot verify the computed style; this asserts the fix is
   // present in the injected stylesheet instead.
-  it('shadow stylesheet forces direction:ltr (RTL host page support)', () => {
+  it('shadow stylesheet pins the panel direction per language', () => {
     const overlay = createOverlay();
     overlay.push({
       id: 'rtl-1',
@@ -136,7 +136,11 @@ describe('overlay', () => {
     const host = document.querySelector('#why-hydration-overlay')!;
     const css = host.shadowRoot!.querySelector('style')!.textContent ?? '';
     expect(css).toMatch(/:host\s*{[^}]*direction:\s*ltr/);
-    expect(css).toMatch(/\.wh-panel\s*{[^}]*direction:\s*ltr/);
+    expect(css).toMatch(/\.wh-panel\[dir="ltr"\]\s*{[^}]*direction:\s*ltr/);
+    expect(css).toMatch(/\.wh-panel\[dir="rtl"\]\s*{[^}]*direction:\s*rtl/);
+    expect(
+      host.shadowRoot!.querySelector('.wh-panel')!.getAttribute('dir'),
+    ).toBe('ltr');
     overlay.destroy();
   });
 });

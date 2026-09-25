@@ -60,9 +60,10 @@ together.
   incidental page noise.
 - 🌐 **Arabic-first locale detection** — digit-script mismatches (٠١٢ vs 012)
   are a first-class cause, not an afterthought.
-- 🔤 **RTL-safe overlay** — the overlay always renders left-to-right, even on
-  pages with `<html dir="rtl">`, since its content (paths, values, code) is
-  English.
+- 🔤 **Speaks Arabic, right-to-left** — on an Arabic page (`<html lang="ar">`)
+  the overlay is in Arabic and laid out right-to-left; everywhere else it is in
+  English. Page data renders in its own direction in both, and invisible bidi
+  marks are shown instead of hidden.
 - 🫧 **Zero production cost** — every code path is gated behind
   `process.env.NODE_ENV`, and CI fails the build if the production bundle for
   any entry point isn't tree-shaken to a no-op.
@@ -339,6 +340,7 @@ A page with no mismatches renders **nothing** — no overlay, no console output.
 | **✕** on the hint bar | Closes just the "scroll to see all" hint; the panel stays. |
 | `overlay={false}` | Never mounts it at all — `onReport` and the console output still work. |
 | `overlay={{ position }}` | `bottom-right` (default), `bottom-left`, `top-right`, `top-left`. |
+| `overlay={{ locale }}` | `'auto'` (default) follows `<html lang>`; `'en'` or `'ar'` pins the language. See [RTL and Arabic support](#rtl-and-arabic-support). |
 
 The overlay is a *view* over the collected reports, not the collector itself:
 dismissing it does not stop detection, and `onReport` keeps firing. If a
@@ -373,19 +375,47 @@ both how the overlay renders and what the engine can actually detect.
 
 ### The overlay
 
-- The overlay's own layout **always renders left-to-right**, on any page. Its
-  content — file paths, DOM selectors, code values, category names — is
-  English, so keeping it LTR keeps it readable regardless of the host page's
-  direction.
-- This is automatic and needs no configuration. The overlay lives in an
-  isolated Shadow DOM, sets `direction: ltr` on both `:host` and the panel, and
-  carries a `dir="ltr"` attribute as well — belt and braces, because the CSS
-  `all` shorthand deliberately excludes `direction` (per spec), so
-  `:host { all: initial }` alone would still let `direction: rtl` leak in and
-  flip the server/client diff columns.
-- Values are rendered as **text**, so Arabic, Hebrew and mixed bidi content
-  display intact inside the LTR panel without reordering the surrounding
-  layout.
+**The overlay speaks the page's language.** On a page whose `<html lang>` is
+Arabic (`ar`, `ar-SA`, `ar-EG`, …) the whole panel is in Arabic and laid out
+right-to-left: title, buttons, category names, the explanation, the fix, and
+the scroll hint, with correct Arabic plurals. Every other page gets the English
+panel — including right-to-left pages in languages the overlay does not
+translate, such as Hebrew or Persian, where it stays left-to-right rather than
+mirroring English text. Pin it either way with `overlay={{ locale: 'en' }}` or
+`overlay={{ locale: 'ar' }}`.
+
+What stays English: the console output, and `cause.explanation` /
+`cause.suggestion` in the report `onReport` receives. Those are what people log,
+grep and paste into issues, so they do not change with the page. Each report
+also carries `cause.messageId` and `cause.params`, which is how the overlay
+finds the translation — and how your own tooling can, too. The "Learn more"
+links point at this README, which is in English, and say so.
+
+**Page data renders in its own direction, in either panel.** A mismatched value
+can be in any script, so each value cell takes its direction from its own first
+strong character. `السعر: ١٬٤٠٠ د.ك.` reads right-to-left with its full stop at
+the end even inside the English panel, and `Price: 1,400 KWD.` reads
+left-to-right inside the Arabic one. Selectors, component names, file paths and
+attribute names are code, so they are always isolated left-to-right — otherwise
+a right-to-left line would mirror their brackets and reorder their segments.
+Class tokens and other values quoted inside a sentence are isolated one by one,
+so two Arabic tokens cannot swap places. Arabic is drawn in a proportional face
+(a monospace fallback renders it with its letters disconnected), and Arabic
+labels are never letter-spaced or uppercased, which breaks their joining.
+
+**What differs is what you see.** Value cells preserve whitespace, so a
+whitespace-only mismatch no longer looks like two identical strings. Invisible
+characters that change layout — `LRM`, `RLM`, `ALM`, the bidi embeddings and
+isolates, zero-width space, BOM — are drawn as small labelled badges rather than
+applied, so the [bidi-mark case](#cause-locale-format) shows a visible
+difference instead of two cells that look the same.
+
+**It is isolated from the page.** The panel lives in a Shadow DOM, and its
+direction is set inside it, so nothing in the host page's CSS can flip it — the
+`all` shorthand deliberately excludes `direction` (per spec), so
+`:host { all: initial }` alone would not be enough. The panel also declares its
+own `lang`, so a screen reader voices it in its own language: before this, an
+English panel on an Arabic page was read aloud with an Arabic voice.
 
 ### Detection
 
@@ -490,6 +520,7 @@ effect setup → cleanup → setup.
 ```ts
 interface OverlayOptions {
   position?: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left'; // default 'bottom-right'
+  locale?: 'auto' | 'en' | 'ar'; // default 'auto' — follows <html lang>
 }
 ```
 
@@ -538,9 +569,11 @@ interface HydrationReport {
   cause: {
     category: HydrationCauseCategory; // one of the categories below, or "unknown"
     confidence: number;               // 0–1
-    explanation: string;
-    suggestion: string;
+    explanation: string;              // always English
+    suggestion: string;               // always English
     docsUrl?: string;
+    messageId?: string;               // which message produced the text, e.g. "attribute-mismatch.class"
+    params?: Record<string, string | string[]>; // the values in it, e.g. { added: ['wide'], removed: [] }
   };
   raw?: { reactMessage?: string };   // the original React console message, if any
 }
@@ -701,6 +734,13 @@ drive the visual change with a CSS media query instead of a JS class toggle.
 A mismatch was detected but didn't match any of the rules above. The report
 still shows the exact server vs. client values and node path so you can
 diagnose it directly.
+
+React also logs a bare "hydration failed" message that names no node at all.
+When the DOM diff or another React message has already located the mismatch,
+that message adds nothing and is not shown. When it is the *only* signal —
+typically because the snapshot script is missing — it is reported once, with an
+explanation that says React did not name the node and a fix that points at the
+snapshot script, rather than asking you to inspect values that do not exist.
 **Fix:** compare the two values — the cause is usually one of the categories
 above. If you find a reliable signal for it, add a custom rule via the
 `classify` option (see [Contributing](#contributing)).
@@ -729,9 +769,12 @@ above. If you find a reliable signal for it, add a custom rule via the
   budget (`npm run size`) against a real production bundle built with webpack
   and terser — the same toolchain Next.js and CRA use for production — and
   fails the build if the tree-shaken output for any entry point isn't reduced
-  to a near-empty stub. Verified independently against Rollup, which is what
-  Vite uses for production builds: **99 B** under webpack, **166 B** under
-  Rollup, versus ~40 KB for the same entry built for development.
+  to a near-empty stub. The budgets sit just above today's output, so even a
+  small leak fails CI. Verified independently against Rollup, which is what
+  Vite uses for production builds: **99 B** minified + gzipped under webpack,
+  and **156 B** minified (not gzipped) under Rollup — versus ~59 KB minified
+  for the same entry built for development. The Arabic translations exist only
+  in that development build.
 - `<HydrationSnapshotScript>` also renders `null` outside development, so no
   snapshot script is emitted into your production HTML.
 
@@ -802,6 +845,11 @@ to the rebuilt inspector rather than lost.
 suspend `requestAnimationFrame` on hidden pages, so scheduling races a frame
 against a 50 ms timer and no longer depends on the page being painted.
 
+**The component name in a report was a tag like `<p>`.** Fixed. React's
+component stacks list host elements first (`at p`, `at span`), and those were
+being taken as the component. The nearest component you wrote is used instead,
+and when there is none the report names no component rather than a tag.
+
 **The "Learn more →" link 404s.** The links point at this README on GitHub
 (`github.com/razan-aboushi/why-hydration#cause-…`). If you've forked the
 package under a different name or repository, update `DOCS_BASE` in
@@ -823,16 +871,24 @@ production. It's dev-only, runs a bounded diff across roughly 1.5 seconds
 right after hydration, then stops.
 
 **Does it work with `<html dir="rtl">`?** Yes — see
-[RTL and Arabic support](#rtl-and-arabic-support). The overlay stays
-left-to-right on purpose; this is not a bug. Detection covers Arabic-script
-formatting mismatches on both sides, not just Arabic-vs-Latin.
+[RTL and Arabic support](#rtl-and-arabic-support). The panel's language follows
+`<html lang>`, not `dir`: an Arabic page gets the Arabic right-to-left panel,
+and a right-to-left page in another language gets the English left-to-right
+one. Detection covers Arabic-script formatting mismatches on both sides, not
+just Arabic-vs-Latin.
 
-**My Arabic app shows two identical-looking values as a mismatch.** They differ
-by invisible bidirectional control characters — `Intl` adds LRM/RLM/isolate
+**I want the English panel on my Arabic site (or the reverse).** Pass
+`overlay={{ locale: 'en' }}` (or `'ar'`). The console and `onReport` are English
+either way.
+
+**My Arabic app reports a mismatch between two values that look the same.** They
+differ by invisible bidirectional control characters — `Intl` adds LRM/RLM/isolate
 marks around numbers and dates in RTL locales, and Node's ICU and the browser's
 ICU do not always agree on which. The report names this explicitly under
-[`locale-format`](#cause-locale-format). Format the value in one place and pass
-the string down, or add `suppressHydrationWarning` if the marks are harmless.
+[`locale-format`](#cause-locale-format), and the overlay draws each invisible
+mark as a small labelled badge (`RLM`, `LRM`, …) in the value cell, so you can
+see which side has it. Format the value in one place and pass the string down,
+or add `suppressHydrationWarning` if the marks are harmless.
 
 ---
 

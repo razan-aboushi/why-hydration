@@ -61,7 +61,7 @@ export function createHydrationInspector(
 
 export type { HydrationInspectorProps } from './inspector';
 export type { InspectorOptions } from './controller';
-export type { OverlayOptions } from './overlay';
+export type { OverlayLocale, OverlayOptions } from './overlay';
 export type {
   Cause,
   Classifier,
