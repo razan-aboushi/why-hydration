@@ -59,6 +59,11 @@ export class InspectorController {
   private started = false;
   private pendingContext: DetectionContext = {};
   private readonly messages = new Set<string>();
+  // The component a recoverable error's own stack names, per message. A report
+  // parsed from a message may only carry *that* message's context: borrowing
+  // the latest error's instead labelled unrelated reports with the component
+  // from some other error (a localStorage read attributed to <InvalidNesting>).
+  private readonly messageContext = new Map<string, DetectionContext>();
   private readonly warnedRoots = new Set<string>();
   private settlingTimers: Array<ReturnType<typeof setTimeout>> = [];
   private inspectScheduled = false;
@@ -124,6 +129,12 @@ export class InspectorController {
     if (!isDev) return;
     const message = error instanceof Error ? error.message : String(error);
     this.rememberMessage(message);
+    if (this.messages.has(message) && info?.componentStack) {
+      this.messageContext.set(message, {
+        componentStack: info.componentStack,
+        component: firstComponentFromStack(info.componentStack),
+      });
+    }
     this.mergeContext({
       componentStack: info?.componentStack,
       component: firstComponentFromStack(info?.componentStack),
@@ -145,6 +156,15 @@ export class InspectorController {
       component: ctx.component ?? this.pendingContext.component,
       location: ctx.location ?? this.pendingContext.location,
       reactMessage: ctx.reactMessage ?? this.pendingContext.reactMessage,
+    };
+  }
+
+  // Context for reports parsed from one message: that message's own component
+  // and stack if it came with one, plus the source location the caller gave.
+  private contextFor(message: string): DetectionContext {
+    return {
+      location: this.pendingContext.location,
+      ...this.messageContext.get(message),
     };
   }
 
@@ -262,7 +282,7 @@ export class InspectorController {
     //    snapshot. Value-based dedup means this never double-reports a
     //    mismatch the DOM diff already found.
     for (const message of this.messages) {
-      reportFromMessage(message, this.collector, this.pendingContext, {
+      reportFromMessage(message, this.collector, this.contextFor(message), {
         locationless: 'skip',
       });
     }
@@ -276,7 +296,7 @@ export class InspectorController {
       .some((r) => r.cause.messageId !== 'unknown.no-location');
     if (!concrete) {
       for (const message of this.messages) {
-        reportFromMessage(message, this.collector, this.pendingContext, {
+        reportFromMessage(message, this.collector, this.contextFor(message), {
           locationless: 'only',
         });
       }

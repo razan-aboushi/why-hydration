@@ -130,7 +130,10 @@ function collectChildren(
         parentTagName: parentTag,
         server: null,
         client: serialize(clientNode),
-        element: asElement(clientNode),
+        // An added text node has no element of its own, so point at its
+        // parent, as text changes do. With `null` the component lookup found
+        // nothing and fell back to whichever error was reported last.
+        element: asElement(clientNode) ?? asElement(clientParent),
       });
     } else if (serverNode && clientNode) {
       collectNode(serverNode, clientNode, path, parentTag, out, limit);
@@ -407,7 +410,10 @@ function isNoiseElement(node: Node): boolean {
 // different content. Those differences are expected, not bugs.
 function hasPendingSuspense(parent: Node): boolean {
   for (const n of Array.from(parent.childNodes)) {
-    if (n.nodeType === Node.COMMENT_NODE && (n.nodeValue ?? '').startsWith('$?')) {
+    if (
+      n.nodeType === Node.COMMENT_NODE &&
+      (n.nodeValue ?? '').startsWith('$?')
+    ) {
       return true;
     }
   }
@@ -424,7 +430,8 @@ function meaningfulChildNodes(parent: Node): Node[] {
   for (const node of raw) {
     if (node.nodeType === Node.COMMENT_NODE) {
       const data = node.nodeValue ?? '';
-      if (data === '$?' || data === '$' || data === '$!') boundaryStack.push(data);
+      if (data === '$?' || data === '$' || data === '$!')
+        boundaryStack.push(data);
       else if (data === '/$') boundaryStack.pop();
       continue; // React/RSC markers are never real content.
     }
@@ -450,7 +457,9 @@ function serialize(node: Node): string {
 
 function asElement(node: Node | null | undefined): Element | null {
   if (!node) return null;
-  return node.nodeType === Node.ELEMENT_NODE ? liveElement(node as Element) : null;
+  return node.nodeType === Node.ELEMENT_NODE
+    ? liveElement(node as Element)
+    : null;
 }
 
 // ---- invalid nesting the parser repairs ----------------------------------
@@ -535,7 +544,7 @@ function repairedForm(
     return null;
   }
   if (!offender) return null;
-  const html = el.outerHTML;
+  const html = serializeKeepingTextBoundaries(el);
   const container = parseServerHtml(html, parentTag ?? 'div');
   // Only if the parser really changes it: some matches are harmless in
   // context, and then the live shape is already what the server would have.
@@ -543,6 +552,27 @@ function repairedForm(
   const nodes = meaningfulChildNodes(container);
   mapToLive(el, nodes);
   return { nodes, offender };
+}
+
+// `outerHTML` writes adjacent text nodes as one run of text, and re-parsing it
+// merges them. React renders `{label}: ` as two text nodes and keeps them apart
+// in its server HTML with a `<!-- -->` marker, so the server side still has
+// both — without the same marker here, the repaired client side would not
+// line up with it and every such label would show up as a bogus text change.
+function serializeKeepingTextBoundaries(el: Element): string {
+  const copy = el.cloneNode(true) as Element;
+  const walker = copy.ownerDocument.createTreeWalker(
+    copy,
+    NodeFilter.SHOW_TEXT,
+  );
+  const texts: Text[] = [];
+  while (walker.nextNode()) texts.push(walker.currentNode as Text);
+  for (const t of texts) {
+    if (t.previousSibling?.nodeType === Node.TEXT_NODE) {
+      t.parentNode!.insertBefore(copy.ownerDocument.createComment(' '), t);
+    }
+  }
+  return copy.outerHTML;
 }
 
 // The parser keeps elements in document order and only changes their parents

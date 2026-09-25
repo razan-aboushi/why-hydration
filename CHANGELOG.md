@@ -38,6 +38,15 @@
   - A `roots` selector that matches nothing on the page — usually a typo — is
     warned about once the settling window closes, instead of being skipped
     silently.
+  - Reports no longer show the wrong component. A report parsed from one of
+    React's messages borrowed the component of whichever error came last, and
+    a text node the client added pointed at nothing, so its lookup fell back
+    the same way (a `localStorage` read labelled `<InvalidNesting>`). Each
+    report now carries only its own context, and an added text node points at
+    its parent element — which also lets `ignore` match it.
+  - Adjacent text nodes (`{label}: ` in JSX) are kept apart when the client
+    side of an invalid nesting is repaired, matching React's server HTML, so
+    they no longer show up as a bogus text change.
   - The Release workflow no longer fails on every merge when no `NPM_TOKEN` is
     set: it skips publishing with a notice and still opens version PRs.
   - A GitHub Pages site (`docs/`) with search metadata, structured data and a

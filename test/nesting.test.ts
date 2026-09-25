@@ -134,6 +134,27 @@ describe('a <div> inside a <p>', () => {
     expect(summary(found)).toEqual(['invalid-html-nesting:structure']);
   });
 
+  it("keeps adjacent text nodes apart, as React's server HTML does", () => {
+    // JSX `{label}: ` renders two text nodes; React's server HTML separates
+    // them with <!-- -->. Merging them on the client side made every such
+    // label look like a text change ("Details" → "Details: ").
+    const client = document.createElement('div');
+    const main = client.appendChild(document.createElement('main'));
+    const p = main.appendChild(document.createElement('p'));
+    const strong = p.appendChild(document.createElement('strong'));
+    strong.append(
+      document.createTextNode('Details'),
+      document.createTextNode(': '),
+    );
+    p.appendChild(document.createElement('div')).textContent = 'x';
+
+    const found = collectSnapshotAgainstDom(
+      '<main><p><strong>Details<!-- -->: </strong><div>x</div></p></main>',
+      client,
+    );
+    expect(summary(found)).toEqual(['invalid-html-nesting:structure']);
+  });
+
   it('leaves text around the nested block alone', () => {
     const client = live([
       'main',

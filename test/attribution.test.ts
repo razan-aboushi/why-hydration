@@ -182,3 +182,60 @@ describe('custom roots', () => {
     controller.stop();
   });
 });
+
+describe('a report parsed from a React message', () => {
+  it("never borrows another error's component", () => {
+    document.body.innerHTML = '<div id="root"></div>';
+    const onReport = vi.fn<(report: HydrationReport) => void>();
+    const controller = new InspectorController({ onReport, overlay: false });
+    controller.start();
+    // A text mismatch React logged to the console, with no component of its own…
+    // eslint-disable-next-line no-console
+    console.error(
+      'Warning: Text content did not match. Server: "" Client: "guest"',
+    );
+    // …then an unrelated recoverable error whose stack names InvalidNesting.
+    controller.onRecoverableError(
+      new Error(
+        'Warning: validateDOMNesting(...): <div> cannot appear as a descendant of <p>.',
+      ),
+      {
+        componentStack:
+          '\n    at div\n    at p\n    at InvalidNesting\n    at App',
+      },
+    );
+    controller.inspectNow();
+
+    const byValue = (client: string | null) =>
+      onReport.mock.calls.map((c) => c[0]).find((r) => r.client === client);
+    // The nesting report keeps the component from its own stack…
+    expect(
+      onReport.mock.calls
+        .map((c) => c[0])
+        .find((r) => r.cause.category === 'invalid-html-nesting')!.component,
+    ).toBe('InvalidNesting');
+    // …and the text mismatch is not labelled with it.
+    expect(byValue('guest')!.component).toBeUndefined();
+    controller.stop();
+  });
+});
+
+describe('a text node the client added', () => {
+  it('points at its parent element, so it can be attributed and ignored', () => {
+    seed(
+      '<span class="greeting"></span>',
+      '<span class="greeting">guest</span>',
+    );
+    const onReport = vi.fn<(report: HydrationReport) => void>();
+    const controller = new InspectorController({
+      onReport,
+      overlay: false,
+      ignore: ['.greeting'],
+    });
+    controller.start();
+    controller.inspectNow();
+    // With no element, `ignore` could never match an added text node.
+    expect(onReport).not.toHaveBeenCalled();
+    controller.stop();
+  });
+});
