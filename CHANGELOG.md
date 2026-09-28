@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.3.1
+
+### Patch Changes
+
+- One card per mismatch, working examples, and `update()` for `createHydrationInspector`.
+
+  - **No more duplicate cards.** React's own message and the DOM diff often
+    describe the same mismatch in slightly different words, and both were
+    reported: React 19's Strict Mode renders twice, so its message could quote a
+    different random value than the one committed; it lists `<aside>` where the
+    diff has the whole element; it calls an added text node "text". A message
+    report is now left out when the DOM diff already reported that mismatch.
+    Without a snapshot nothing is left out, and mismatches only React knows about
+    (like `className`, which React does not patch into the DOM) are still shown.
+  - **Element lines in React's diff tree** (`+ <nav>`, `- <aside>`) are read as a
+    node swap, not as text, so they are no longer reported as "Unknown".
+  - **`createHydrationInspector()` returns an `update()` method**, the counterpart
+    of re-rendering `<HydrationInspector>` with new props. Options passed are
+    merged into the current ones.
+  - **The examples run.** The Vite example had no `package.json` or server; it
+    now does server rendering with Vite's SSR mode, and each scenario has its own
+    URL so it survives a reload. The Next.js example pinned `^0.1.0`, which for a
+    `0.x` version never installs anything newer than 0.1.x.
+  - Adds `npm run test:coverage`.
+  - The production no-op grows from 99 B to 106 B gzipped, for the inert
+    `update()` on the production handle. Budgets and docs are updated.
+
 ## 0.3.0
 
 ### Minor Changes

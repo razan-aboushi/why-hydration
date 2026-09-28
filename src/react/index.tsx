@@ -24,6 +24,14 @@ export interface HydrationInspectorHandle {
     info?: { componentStack?: string },
   ) => void;
   Provider: (props: { children?: React.ReactNode }) => React.ReactElement;
+  /**
+   * Change options while the app runs — the counterpart of re-rendering
+   * `<HydrationInspector>` with new props. Merged into the current options:
+   * pass only what changes. A new `onReport` gets the next report, a new
+   * `overlay` rebuilds the panel with the reports so far, and new `ignore`,
+   * `classify`, `maxReports` and `roots` apply from then on.
+   */
+  update: (options: InspectorOptions) => void;
 }
 
 export function createHydrationInspector(
@@ -33,10 +41,12 @@ export function createHydrationInspector(
     return {
       onRecoverableError: () => {},
       Provider: PassThrough,
+      update: () => {},
     };
   }
 
-  const controller = new InspectorController(options);
+  let current: InspectorOptions = { ...options };
+  const controller = new InspectorController(current);
   controller.start();
 
   function Provider(props: { children?: React.ReactNode }): React.ReactElement {
@@ -56,6 +66,10 @@ export function createHydrationInspector(
   return {
     onRecoverableError: controller.onRecoverableError,
     Provider,
+    update(next: InspectorOptions): void {
+      current = { ...current, ...next };
+      controller.update(current);
+    },
   };
 }
 

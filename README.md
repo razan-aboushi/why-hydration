@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/why-hydration.svg)](https://www.npmjs.com/package/why-hydration)
 [![npm downloads](https://img.shields.io/npm/dm/why-hydration.svg)](https://www.npmjs.com/package/why-hydration)
 [![CI](https://github.com/razan-aboushi/why-hydration/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/razan-aboushi/why-hydration/actions/workflows/ci.yml)
-[![prod bundle: 99 B gzipped](https://img.shields.io/badge/prod%20bundle-99%20B%20gzipped-brightgreen)](#production-behavior)
+[![prod bundle: 106 B gzipped](https://img.shields.io/badge/prod%20bundle-106%20B%20gzipped-brightgreen)](#production-behavior)
 [![node: >=18](https://img.shields.io/node/v/why-hydration)](#install)
 [![license: MIT](https://img.shields.io/npm/l/why-hydration.svg)](LICENSE)
 
@@ -215,8 +215,16 @@ Add the snapshot script to your HTML `<head>`, before your entry `<script>`
 > that string, so you can inject it from your own build tooling and pass a
 > custom list of root selectors.
 
-Runnable examples for a Next.js App Router setup and a Vite setup live in
-[`examples/`](examples).
+Runnable examples live in [`examples/`](examples), each with a real server
+render, so the mismatches are genuine:
+
+- [`examples/next-app-router`](examples/next-app-router) — Next.js 15 App
+  Router with `<HydrationSnapshotScript>` and `<HydrationInspector>`.
+- [`examples/vite-react`](examples/vite-react) — Vite in SSR mode with
+  `createHydrationInspector()`. Five scenarios, one per URL
+  (`?scenario=random|clock|price|nav|theme`), each triggering a different cause.
+
+In each: `npm install`, then `npm run dev`.
 
 ---
 
@@ -553,8 +561,14 @@ Returns:
 interface HydrationInspectorHandle {
   onRecoverableError: (error: unknown, info?: { componentStack?: string }) => void;
   Provider: (props: { children?: React.ReactNode }) => React.ReactElement;
+  update: (options: InspectorOptions) => void; // change options while running
 }
 ```
+
+`update()` is the counterpart of re-rendering `<HydrationInspector>` with new
+props: pass only what changes, and it is merged into the current options —
+`inspector.update({ overlay: { locale: 'ar' } })` switches the panel's language
+and keeps the reports so far.
 
 `Provider` owns the inspector's lifetime: it must actually be mounted, and
 unmounting it tears the inspector down (overlay removed, `console.error`
@@ -829,8 +843,8 @@ above. If you find a reliable signal for it, add a custom rule via the
   fails the build if the tree-shaken output for any entry point isn't reduced
   to a near-empty stub. The budgets sit just above today's output, so even a
   small leak fails CI. Verified independently against Rollup, which is what
-  Vite uses for production builds: **99 B** minified + gzipped under webpack,
-  and **156 B** minified (not gzipped) under Rollup — versus ~59 KB minified
+  Vite uses for production builds: **106 B** minified + gzipped under webpack,
+  and **170 B** minified (not gzipped) under Rollup — versus ~85 KB minified
   for the same entry built for development. The Arabic translations exist only
   in that development build.
 - `<HydrationSnapshotScript>` also renders `null` outside development, so no

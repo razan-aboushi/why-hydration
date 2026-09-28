@@ -159,6 +159,38 @@ export class InspectorController {
     };
   }
 
+  // React's message and the DOM diff often describe the same mismatch in
+  // slightly different words, and value-based dedup misses those: React 19's
+  // Strict Mode renders twice, so its message can quote a different client
+  // value than the one committed; it lists `<aside>` where the diff has the
+  // whole `<aside>Mobile menu</aside>`; it calls an added text node "text".
+  // So a message divergence is left out when a report the DOM diff made
+  // already shares one of its sides. The DOM report is the better one — it
+  // has the real path and component. Without a snapshot there are no DOM
+  // reports and nothing is ever left out.
+  private coveredByDom(d: Divergence): boolean {
+    const same = (a: string | null, b: string | null) =>
+      a != null && b != null && a.trim() !== '' && a.trim() === b.trim();
+    const opens = (html: string | null, line: string | null) => {
+      const tag = line && /^<([A-Za-z][\w.-]*)/.exec(line)?.[1];
+      return !!tag && !!html && new RegExp(`^<${tag}[\\s>/]`, 'i').test(html);
+    };
+    return this.collector.getReports().some((r) => {
+      if (r.raw?.reactMessage) return false; // only reports from the DOM diff
+      if (d.kind === 'attribute') {
+        return (
+          r.node.attribute === d.attribute &&
+          (same(r.server, d.server) || same(r.client, d.client))
+        );
+      }
+      if (d.kind === 'structure' && d.tagName) {
+        return opens(r.server, d.server) || opens(r.client, d.client);
+      }
+      if (r.node.kind === 'attribute') return false;
+      return same(r.server, d.server) || same(r.client, d.client);
+    });
+  }
+
   // Context for reports parsed from one message: that message's own component
   // and stack if it came with one, plus the source location the caller gave.
   private contextFor(message: string): DetectionContext {
@@ -284,6 +316,7 @@ export class InspectorController {
     for (const message of this.messages) {
       reportFromMessage(message, this.collector, this.contextFor(message), {
         locationless: 'skip',
+        skip: (d) => this.coveredByDom(d),
       });
     }
     // 3) React's bare "hydration failed" message names no node. Next to a

@@ -63,6 +63,8 @@ export interface ReportFromMessageOptions {
    * `'skip'` leaves it out; `'only'` reports nothing else.
    */
   locationless?: 'include' | 'skip' | 'only';
+  /** Leave out divergences this returns true for (already reported, say). */
+  skip?: (divergence: Divergence) => boolean;
 }
 
 // Report every divergence a React hydration message describes. Deduped by value
@@ -75,6 +77,7 @@ export function reportFromMessage(
 ): number {
   const mode = options.locationless ?? 'include';
   const divergences = parseAllHydrationDivergences(message).filter((d) => {
+    if (options.skip?.(d)) return false;
     if (mode === 'include') return true;
     const bare =
       isLocationless(d) &&

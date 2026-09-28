@@ -19,4 +19,5 @@ npm run dev
 
 Open http://localhost:3000. The diagnostic overlay appears bottom-right and
 classifies the mismatch as `locale-format`, with the server vs client values and
-the fix. The same report is printed to the console. Verified on React 18 and 19.
+the fix. The same report is printed to the console. Verified with Next.js 15
+(React 19); a production build (`npm run build`) ships none of it.

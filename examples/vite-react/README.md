@@ -1,30 +1,36 @@
-# Example: Vite + React (you own `hydrateRoot`)
+# Example: Vite + React with SSR (you own `hydrateRoot`)
 
-Demonstrates the `createHydrationInspector()` integration path. Each component in
-`src/App.tsx` deterministically triggers one cause category.
+Demonstrates the `createHydrationInspector()` integration path, on a real
+server render: `server.mjs` runs Vite in SSR mode, renders `<App/>` to HTML, and
+the client hydrates it. A hydration mismatch is a difference between those two
+renders — a client-only Vite app has no server HTML to differ from.
 
 Wiring to look at:
 
 - `index.html` — the inline **snapshot script** in `<head>` (runs before
   hydration).
+- `server.mjs` + `src/entry-server.tsx` — the server render.
 - `src/main.tsx` — `createHydrationInspector()` + `onRecoverableError` +
-  `<inspector.Provider>`.
+  `<inspector.Provider>`, under `<StrictMode>`.
 - `src/App.tsx` — the trigger-mismatch scenarios.
 
 ## Run
-
-This example needs server-rendered HTML to hydrate against (that's what a
-hydration mismatch _is_). Add a small SSR dev server, or wire it into your own
-SSR template, then:
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open the app, pick a scenario, and reload — the overlay appears in the corner
-and the console prints a grouped report per mismatch.
+Open http://localhost:5173 and pick a scenario. Each is its own URL, so it is
+rendered on the server and hydrated fresh:
 
-> A pure client-only Vite SPA won't produce hydration mismatches because there
-> is no server HTML to diverge from. Use SSR (Vite's SSR mode, Express +
-> `renderToString`, or Remix) to see it in action.
+| URL                | What differs                                                | Reported as             |
+| ------------------ | ----------------------------------------------------------- | ----------------------- |
+| `?scenario=random` | `Math.random()` in render                                   | non-deterministic value |
+| `?scenario=clock`  | the time, a second apart                                    | date / time             |
+| `?scenario=price`  | `ar-EG` on the server, `en-US` in the browser               | locale formatting       |
+| `?scenario=nav`    | a `window.innerWidth` check (use a window wider than 768px) | viewport branching      |
+| `?scenario=theme`  | a `localStorage` read                                       | browser-only API        |
+
+The overlay appears in the corner with one card per mismatch, and the console
+prints a grouped report for each.

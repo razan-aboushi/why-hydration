@@ -11,7 +11,7 @@
     "next": "^15.0.0",
     "react": "^18 || ^19",
     "react-dom": "^18 || ^19",
-    "why-hydration": "^0.1.0"
+    "why-hydration": "^0.3.0"
   },
   "devDependencies": {
     "@types/node": "^20",
