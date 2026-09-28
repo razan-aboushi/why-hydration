@@ -9,7 +9,7 @@
  * tree-shaken away. If any of it survives, these budgets fail — that is the
  * regression guard for the zero-prod-cost rule.
  *
- * The limits sit just above today's output (99 B / 99 B / 27 B) on purpose. A
+ * The limits sit just above today's output (106 B / 106 B / 27 B) on purpose. A
  * generous budget hides small leaks: a single module-level `new
  * Intl.PluralRules()` once survived tree-shaking and ran on every production
  * page, growing the bundle to 148 B — well inside the old 600 B limit.

@@ -237,3 +237,96 @@ describe('end to end with React 19 messages', () => {
     controller.stop();
   });
 });
+
+describe('the DOM diff and React describing the same mismatch', () => {
+  const tree = (lines: string) =>
+    `Hydration failed because the server rendered HTML didn't match the client. As a result this tree will be regenerated on the client. ${CAUSES}${LINK}\n\n  <App>\n${lines}`;
+
+  function run(serverHtml: string, clientHtml: string, message: string) {
+    document.body.innerHTML = '';
+    const root = document.createElement('div');
+    root.id = 'root';
+    root.innerHTML = clientHtml;
+    document.body.appendChild(root);
+    (window as unknown as Record<string, Snapshot>)[SNAPSHOT_KEY] = {
+      version: 1,
+      capturedAt: Date.now(),
+      roots: { '#root': serverHtml },
+    };
+    const onReport = vi.fn<(r: HydrationReport) => void>();
+    const controller = new InspectorController({ onReport, overlay: false });
+    controller.start();
+    controller.onRecoverableError(new Error(message));
+    controller.inspectNow();
+    controller.stop();
+    return onReport.mock.calls.map((c) => c[0]);
+  }
+
+  it('reads an element line in the diff as a node swap, not text', () => {
+    const [d] = parseAllHydrationDivergences(
+      tree('+     <nav>\n-     <aside>\n'),
+    );
+    expect(d).toMatchObject({
+      kind: 'structure',
+      tagName: 'NAV',
+      server: '<aside>',
+      client: '<nav>',
+    });
+  });
+
+  it('is one card when an element is swapped', () => {
+    const reports = run(
+      '<aside>Mobile menu</aside>',
+      '<nav>Desktop menu</nav>',
+      tree('+     <nav>\n-     <aside>\n'),
+    );
+    expect(reports.map((r) => r.cause.category)).toEqual([
+      'viewport-branching',
+    ]);
+  });
+
+  it('is one card when Strict Mode quotes a different client value', () => {
+    // React 19 renders twice in Strict Mode, so a random value in its message
+    // can differ from the one that was committed to the DOM.
+    const reports = run(
+      '<span>token: kuolg5od</span>',
+      '<span>token: 9qauwfxf</span>',
+      tree('    <span>\n+     token: 759yq01k\n-     token: kuolg5od\n'),
+    );
+    expect(reports).toHaveLength(1);
+    expect(reports[0]!.client).toBe('token: 9qauwfxf');
+  });
+
+  it('is one card when React calls an added text node "text"', () => {
+    const reports = run(
+      '<span></span>',
+      '<span>dark</span>',
+      tree('    <span>\n+     dark\n'),
+    );
+    expect(reports.map((r) => r.cause.category)).toEqual(['browser-only-api']);
+  });
+
+  it('keeps a message mismatch the DOM diff did not find', () => {
+    // React does not patch class names into the DOM, so only its message
+    // knows about this one.
+    const reports = run(
+      '<p class="a">x</p>',
+      '<p class="a">x</p>',
+      tree('    <p\n+     className="b"\n-     className="a"\n'),
+    );
+    expect(reports.map((r) => r.node.attribute)).toEqual(['className']);
+  });
+
+  it('keeps every message mismatch when there is no snapshot', () => {
+    document.body.innerHTML = '<div id="root"><nav>x</nav></div>';
+    const onReport = vi.fn<(r: HydrationReport) => void>();
+    const controller = new InspectorController({ onReport, overlay: false });
+    controller.start();
+    controller.onRecoverableError(
+      new Error(tree('+     <nav>\n-     <aside>\n')),
+    );
+    controller.inspectNow();
+    controller.stop();
+    expect(onReport).toHaveBeenCalledOnce();
+  });
+});

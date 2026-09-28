@@ -1,6 +1,6 @@
 {
   "name": "why-hydration",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Find which React component broke hydration, what differed, and how to fix it — for Next.js, Remix and Vite, React 18 and 19. Dev-only, zero production cost.",
   "license": "MIT",
   "author": "Razan Aboushi (https://www.linkedin.com/in/razan-aboushi/)",
@@ -126,7 +126,8 @@
     "ci": "npm run lint && npm run typecheck && npm run test && npm run build && npm run size",
     "changeset": "changeset",
     "version": "changeset version",
-    "release": "npm run build && changeset publish"
+    "release": "npm run build && changeset publish",
+    "test:coverage": "vitest run --coverage"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0",
@@ -149,6 +150,7 @@
     "@types/react-dom": "^18.3.1",
     "@typescript-eslint/eslint-plugin": "^8.13.0",
     "@typescript-eslint/parser": "^8.13.0",
+    "@vitest/coverage-v8": "^2.1.9",
     "eslint": "^8.57.1",
     "eslint-config-prettier": "^9.1.0",
     "jsdom": "^25.0.1",

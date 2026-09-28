@@ -8,6 +8,7 @@ sharper cause classifier**, so that's documented first.
 ```bash
 npm install
 npm run test      # vitest (jsdom)
+npm run test:coverage  # the same, with a per-file coverage report
 npm run typecheck # tsc --noEmit
 npm run lint
 npm run build     # tsup → ESM + CJS + .d.ts

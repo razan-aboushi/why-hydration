@@ -302,8 +302,29 @@ export function parseAllHydrationDivergences(message: string): Divergence[] {
     if (name) out.push(attribute(name, attrValue(line), null));
   });
 
-  const textPlus = plus.filter((p) => !ATTR_RE.test(p));
-  const textMinus = minus.filter((m) => !ATTR_RE.test(m));
+  // Element lines (`+ <nav>`, `- <aside className="x">`) are a node swapped
+  // for another, not text: reading them as text reported `<aside> → <nav>` as
+  // an "Unknown" text change next to the DOM diff's structural report.
+  const elementPlus = plus.filter((p) => ELEMENT_LINE_RE.test(p));
+  const elementMinus = minus.filter((m) => ELEMENT_LINE_RE.test(m));
+  const elementLen = Math.max(elementPlus.length, elementMinus.length);
+  for (let i = 0; i < elementLen; i++) {
+    const client = elementPlus[i] ?? null;
+    const server = elementMinus[i] ?? null;
+    out.push({
+      kind: 'structure',
+      path: 'body',
+      tagName: tagOf(client ?? server),
+      server,
+      client,
+      reactMessage: message,
+    });
+  }
+
+  const isText = (line: string) =>
+    !ATTR_RE.test(line) && !ELEMENT_LINE_RE.test(line);
+  const textPlus = plus.filter(isText);
+  const textMinus = minus.filter(isText);
   const len = Math.max(textPlus.length, textMinus.length);
   for (let i = 0; i < len; i++) {
     const client = textPlus[i] ?? null;
@@ -320,6 +341,15 @@ export function parseAllHydrationDivergences(message: string): Divergence[] {
   }
 
   return out.length ? out : fallback();
+}
+
+// A JSX element opening line in React's diff tree: `<nav>`, `<div className=…>`,
+// `<Header>`. Text never starts with `<` followed directly by a tag name.
+const ELEMENT_LINE_RE = /^<([A-Za-z][\w.-]*)(?=[\s>/]|$)/;
+
+function tagOf(line: string | null): string | undefined {
+  const name = line ? ELEMENT_LINE_RE.exec(line)?.[1] : undefined;
+  return name ? name.toUpperCase() : undefined;
 }
 
 function attrName(line: string): string | undefined {

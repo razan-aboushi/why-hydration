@@ -316,3 +316,36 @@ describe('a configured root that matches nothing', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 });
+
+describe('createHydrationInspector().update()', () => {
+  it('changes the overlay language and keeps the reports', async () => {
+    seed('<span>a</span>', '<span>b</span>');
+    const { createHydrationInspector } = await import('../src/react/index');
+    const handle = createHydrationInspector({ overlay: { locale: 'en' } });
+    handle.onRecoverableError(new Error('noop'));
+    await settle();
+    expect(panel()!.getAttribute('lang')).toBe('en');
+    expect(cards()).toBe(1);
+
+    handle.update({ overlay: { locale: 'he' } });
+    expect(panel()!.getAttribute('lang')).toBe('he');
+    expect(panel()!.getAttribute('dir')).toBe('rtl');
+    expect(cards()).toBe(1);
+  });
+
+  it('merges: options not passed are kept', async () => {
+    seed('<span>same</span>', '<span>same</span>');
+    const { createHydrationInspector } = await import('../src/react/index');
+    const onReport = vi.fn();
+    const handle = createHydrationInspector({ overlay: false, onReport });
+    handle.update({ maxReports: 10 });
+    // eslint-disable-next-line no-console
+    console.error(
+      'Warning: Text content did not match. Server: "1" Client: "2"',
+    );
+    await settle();
+    // onReport survived the update, and the overlay stayed off.
+    expect(onReport).toHaveBeenCalledOnce();
+    expect(host()).toBeNull();
+  });
+});
